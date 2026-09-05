@@ -12,6 +12,7 @@ import {
 } from "../lib/lineItems";
 import LineItemEditor from "../components/LineItemEditor.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
+import ShareButtons from "../components/ShareButtons.jsx";
 
 // Stage 1: build and save a quote (status 'draft'). Sharing, the public page,
 // invoice conversion, PDF and the dashboard are later build-order stages.
@@ -31,6 +32,7 @@ export default function Builder() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [error, setError] = useState(null);
+  const [dirty, setDirty] = useState(false); // unsaved edits since last save/load
 
   // Load an existing draft when /builder/:id
   useEffect(() => {
@@ -54,15 +56,19 @@ export default function Builder() {
   const total = subtotal; // VAT/discount are not in the v1 spec; keep the column for later.
 
   function setField(k, v) {
+    setDirty(true);
     setQuote((q) => ({ ...q, [k]: v }));
   }
   function updateItem(next) {
+    setDirty(true);
     setQuote((q) => ({ ...q, line_items: q.line_items.map((it) => (it.id === next.id ? next : it)) }));
   }
   function removeItem(itemId) {
+    setDirty(true);
     setQuote((q) => ({ ...q, line_items: q.line_items.filter((it) => it.id !== itemId) }));
   }
   function addItem(mode) {
+    setDirty(true);
     setQuote((q) => ({ ...q, line_items: [...q.line_items, newLineItem(mode)] }));
   }
 
@@ -99,6 +105,7 @@ export default function Builder() {
       return;
     }
     setSavedAt(new Date());
+    setDirty(false);
     setQuote((q) => ({ ...q, ...res.data, customer_phone: res.data.customer_phone ?? "", customer_email: res.data.customer_email ?? "" }));
     if (!id) navigate(`/builder/${res.data.id}`, { replace: true });
   }
@@ -181,6 +188,16 @@ export default function Builder() {
             ))}
           </div>
         </section>
+
+        {id ? (
+          <ShareButtons
+            quote={{ ...quote, id }}
+            disabledReason={dirty ? "Save your changes before sending" : null}
+            onStatusChange={(row) => setQuote((q) => ({ ...q, status: row.status }))}
+          />
+        ) : (
+          <p className="text-sm text-gray-500">Save the draft to get a shareable link.</p>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
       </form>

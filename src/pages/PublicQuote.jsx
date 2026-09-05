@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { companyConfig } from "../../companyConfig";
 import { makeMoneyFormatter } from "../lib/lineItems";
+import { advanceStatus } from "../lib/quoteStatus";
 import LineItemRow from "../components/LineItemRow.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 
@@ -46,14 +47,12 @@ export default function PublicQuote() {
         markedViewed.current = true;
         const { data: sess } = await supabase.auth.getSession();
         if (sess.session) return;
-        const { data: updated } = await supabase
-          .from("quotes")
-          .update({ status: "viewed" })
-          .eq("id", id)
-          .eq("status", "sent") // no-op if it already moved on
-          .select()
-          .maybeSingle();
-        if (!cancelled && updated) setQuote(updated);
+        try {
+          const updated = await advanceStatus(id, "sent", "viewed"); // no-op if it already moved on
+          if (!cancelled && updated) setQuote(updated);
+        } catch {
+          /* viewing still works even if the flip fails */
+        }
       }
     }
     load();
@@ -64,18 +63,15 @@ export default function PublicQuote() {
     if (!quote) return;
     setAccepting(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("quotes")
-      .update({ status: "accepted" })
-      .eq("id", id)
-      .in("status", ["sent", "viewed"])
-      .select()
-      .maybeSingle();
-    setAccepting(false);
-    if (error) {
+    let data;
+    try {
+      data = await advanceStatus(id, ["sent", "viewed"], "accepted");
+    } catch {
+      setAccepting(false);
       setError("Sorry, we couldn't record your acceptance. Please try again or contact us.");
       return;
     }
+    setAccepting(false);
     if (data) setQuote(data);
     else {
       // Row was not updatable (already accepted elsewhere). Refresh to show truth.

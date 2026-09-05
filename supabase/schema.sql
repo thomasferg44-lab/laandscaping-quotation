@@ -140,6 +140,23 @@ create trigger quotes_a_guard_anon_update
   for each row execute function public.guard_anon_quote_update();
 
 -- ---------------------------------------------------------------------------
+-- Realtime: let the landscaper's dashboard receive row changes instantly.
+-- Only authenticated clients can subscribe usefully: realtime respects RLS,
+-- so anon would only ever see non-draft rows, and the public page doesn't
+-- subscribe at all. The dashboard also polls, so this is an enhancement,
+-- not a requirement.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'quotes'
+  ) then
+    alter publication supabase_realtime add table public.quotes;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Storage: line-item photos
 -- Public-read bucket so the hosted quote page can show thumbnails with no auth.
 -- Only the authenticated landscaper can upload/replace/delete.

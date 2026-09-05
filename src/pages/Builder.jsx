@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { companyConfig } from "../../companyConfig";
 import {
@@ -158,6 +158,7 @@ export default function Builder() {
       <header className="sticky top-0 z-10 bg-white border-b border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
+            <Link to="/" className="text-sm text-gray-500 whitespace-nowrap">← Quotes</Link>
             {companyConfig.logoUrl && (
               <img src={companyConfig.logoUrl} alt="" className="h-8 w-8 object-contain" onError={(e) => (e.currentTarget.style.display = "none")} />
             )}

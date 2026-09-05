@@ -4,8 +4,8 @@ import { supabase } from "./lib/supabaseClient";
 import Login from "./pages/Login.jsx";
 import Builder from "./pages/Builder.jsx";
 import PublicQuote from "./pages/PublicQuote.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
 
-// /dashboard arrives in Stage 6 per CLAUDE.md build order.
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading
 
@@ -23,12 +23,13 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={session ? <Navigate to="/builder" replace /> : <Login />} />
+      <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/" element={requireAuth(<Dashboard />)} />
       <Route path="/builder" element={requireAuth(<Builder />)} />
       <Route path="/builder/:id" element={requireAuth(<Builder />)} />
       {/* Public, no-login page the customer opens from WhatsApp/email */}
       <Route path="/quote/:id" element={<PublicQuote />} />
-      <Route path="*" element={<Navigate to="/builder" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

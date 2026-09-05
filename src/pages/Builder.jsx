@@ -13,6 +13,9 @@ import {
 import LineItemEditor from "../components/LineItemEditor.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import ShareButtons from "../components/ShareButtons.jsx";
+import { advanceStatus } from "../lib/quoteStatus";
+import { exportQuotePdf } from "../lib/pdfExport";
+import { docLabel, isInvoiceStatus } from "../lib/quoteDoc";
 
 // Stage 1: build and save a quote (status 'draft'). Sharing, the public page,
 // invoice conversion, PDF and the dashboard are later build-order stages.
@@ -33,6 +36,8 @@ export default function Builder() {
   const [savedAt, setSavedAt] = useState(null);
   const [error, setError] = useState(null);
   const [dirty, setDirty] = useState(false); // unsaved edits since last save/load
+  const [converting, setConverting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Load an existing draft when /builder/:id
   useEffect(() => {
@@ -110,6 +115,36 @@ export default function Builder() {
     if (!id) navigate(`/builder/${res.data.id}`, { replace: true });
   }
 
+  // Convert to invoice: same record, same line items, only status changes.
+  // Goes through the shared guarded status path; invoiced_at is stamped by
+  // the DB trigger.
+  async function convertToInvoice() {
+    if (!window.confirm("Convert this accepted quote to an invoice? The customer's link will now show an invoice.")) return;
+    setConverting(true);
+    setError(null);
+    try {
+      const row = await advanceStatus(id, "accepted", "invoiced");
+      if (row) setQuote((q) => ({ ...q, ...row }));
+      else setError("Quote is no longer in 'accepted' state. Reload to see its current status.");
+    } catch (e) {
+      setError(e.message);
+    }
+    setConverting(false);
+  }
+
+  async function downloadPdf() {
+    setExporting(true);
+    setError(null);
+    try {
+      // Export what is saved, not the unsaved form state, so PDF == hosted page.
+      const items = quote.line_items.map(serialiseLineItem);
+      await exportQuotePdf({ ...quote, id, line_items: items, subtotal: sumLineItems(items), total: sumLineItems(items) });
+    } catch (e) {
+      setError(`PDF export failed: ${e.message}`);
+    }
+    setExporting(false);
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
   }
@@ -137,7 +172,7 @@ export default function Builder() {
       <form onSubmit={save} className="max-w-2xl mx-auto px-4 py-4 space-y-6">
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold">{id ? "Edit quote" : "New quote"}</h1>
+            <h1 className="text-lg font-semibold">{id ? `Edit ${docLabel(quote.status).toLowerCase()}` : "New quote"}</h1>
             <div className="flex items-center gap-3">
               {id && !isDraft && (
                 <a href={`/quote/${id}`} target="_blank" rel="noreferrer" className="text-sm underline text-gray-600">
@@ -149,7 +184,9 @@ export default function Builder() {
           </div>
           {!isDraft && (
             <p className="text-sm rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-800">
-              This quote has already been sent. Editing it will change what the customer sees.
+              {isInvoiceStatus(quote.status)
+                ? "This is now an invoice. Editing it will change what the customer sees on their link and PDF."
+                : "This quote has already been sent. Editing it will change what the customer sees."}
             </p>
           )}
           <label className="block text-sm">
@@ -197,6 +234,33 @@ export default function Builder() {
           />
         ) : (
           <p className="text-sm text-gray-500">Save the draft to get a shareable link.</p>
+        )}
+
+        {id && (
+          <section className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
+            <h2 className="font-semibold">Actions</h2>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={downloadPdf} disabled={dirty || exporting}
+                title={dirty ? "Save your changes first so the PDF matches what's saved" : undefined}
+                className="flex-1 min-w-[7.5rem] rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                {exporting ? "Generating…" : `⬇️ Download ${docLabel(quote.status)} PDF`}
+              </button>
+              {quote.status === "accepted" && (
+                <button type="button" onClick={convertToInvoice} disabled={dirty || converting}
+                  title={dirty ? "Save your changes first" : undefined}
+                  className="flex-1 min-w-[7.5rem] rounded-lg px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: companyConfig.accentColor }}>
+                  {converting ? "Converting…" : "🧾 Convert to Invoice"}
+                </button>
+              )}
+            </div>
+            {quote.status === "accepted" && (
+              <p className="text-xs text-gray-500">Converting keeps every line item and the total. Only the status changes.</p>
+            )}
+            {isInvoiceStatus(quote.status) && quote.invoiced_at && (
+              <p className="text-xs text-gray-500">Invoiced on {new Date(quote.invoiced_at).toLocaleString("en-ZA")}.</p>
+            )}
+          </section>
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}

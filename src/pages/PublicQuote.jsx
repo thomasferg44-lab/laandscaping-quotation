@@ -4,6 +4,8 @@ import { supabase } from "../lib/supabaseClient";
 import { companyConfig } from "../../companyConfig";
 import { makeMoneyFormatter } from "../lib/lineItems";
 import { advanceStatus } from "../lib/quoteStatus";
+import { exportQuotePdf } from "../lib/pdfExport";
+import { docLabel, isInvoiceStatus } from "../lib/quoteDoc";
 import LineItemRow from "../components/LineItemRow.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 
@@ -25,6 +27,7 @@ export default function PublicQuote() {
   const [notFound, setNotFound] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [error, setError] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const markedViewed = useRef(false); // guard against StrictMode double-effect
 
   useEffect(() => {
@@ -94,10 +97,16 @@ export default function PublicQuote() {
     );
   }
 
-  const isInvoice = quote.status === "invoiced" || quote.status === "paid";
+  const isInvoice = isInvoiceStatus(quote.status);
   const canAccept = quote.status === "sent" || quote.status === "viewed";
   const accepted = quote.status === "accepted" || isInvoice;
-  const docLabel = isInvoice ? "Invoice" : "Quote";
+  const label = docLabel(quote.status);
+
+  async function downloadPdf() {
+    setExporting(true);
+    try { await exportQuotePdf(quote); } catch { setError("Couldn't generate the PDF. Please try again."); }
+    setExporting(false);
+  }
   const created = new Date(quote.created_at);
 
   return (
@@ -105,7 +114,7 @@ export default function PublicQuote() {
       {/* Header block */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-wide text-gray-500">{docLabel}</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
           <h1 className="text-xl font-semibold">{quote.customer_name}</h1>
           <div className="text-sm text-gray-500">{created.toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric" })}</div>
         </div>
@@ -155,6 +164,10 @@ export default function PublicQuote() {
           </div>
         )}
         {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+        <button type="button" onClick={downloadPdf} disabled={exporting}
+          className="mt-3 w-full rounded-xl border border-gray-300 bg-white py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-60">
+          {exporting ? "Generating…" : `⬇️ Download ${label} PDF`}
+        </button>
       </div>
 
       <footer className="mt-8 text-center text-xs text-gray-400">

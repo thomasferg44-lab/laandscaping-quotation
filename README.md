@@ -54,8 +54,9 @@ Those tools are global, USD/GBP-priced, feature-heavy platforms built around US/
 2. `npm install`
 3. Copy `.env.example` to `.env` and fill in your Supabase project URL + anon key
 4. Edit `companyConfig.js` with the client's business name, colors, logo, WhatsApp number, and contact email
-5. Run the Supabase schema: paste `/supabase/schema.sql` into the Supabase SQL editor for this client's project
-6. `npm run dev`
+5. Run the Supabase schema: paste `/supabase/schema.sql` into the Supabase SQL editor for this client's project (creates the `quotes` table, RLS policies, and the `quote-photos` storage bucket)
+6. Create the landscaper's login: Supabase dashboard → Authentication → Users → Add user (email + password). There is no signup screen by design; one user per deploy.
+7. `npm run dev` and sign in at `/login`
 
 ## Deploying a new client
 

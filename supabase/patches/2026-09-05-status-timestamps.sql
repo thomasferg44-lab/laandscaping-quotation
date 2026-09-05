@@ -27,10 +27,16 @@ create trigger quotes_stamp_status_timestamps
 
 -- Guard: when the caller is anon, reject any change other than the allowed
 -- forward status transition. Runs for all roles but only constrains anon.
+--
+-- Detect anon by the DATABASE role, not auth.role(). auth.role() reads the
+-- JWT claim that PostgREST injects per request; it is null in the SQL editor
+-- (set role anon) and null for any non-PostgREST path, so a guard based on
+-- it can be bypassed. PostgREST always does "set local role anon" for
+-- anon-key requests, so current_user covers both paths.
 create or replace function public.guard_anon_quote_update()
 returns trigger language plpgsql as $$
 begin
-  if auth.role() = 'anon' then
+  if current_user = 'anon' or coalesce(auth.role(), '') = 'anon' then
     if new.customer_name  is distinct from old.customer_name
     or new.customer_phone is distinct from old.customer_phone
     or new.customer_email is distinct from old.customer_email

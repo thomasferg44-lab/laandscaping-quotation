@@ -3,9 +3,9 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { supabase } from "./lib/supabaseClient";
 import Login from "./pages/Login.jsx";
 import Builder from "./pages/Builder.jsx";
+import PublicQuote from "./pages/PublicQuote.jsx";
 
-// Stage 1 routes only. /quote/:id (public page) and /dashboard arrive in
-// later stages per CLAUDE.md build order.
+// /dashboard arrives in Stage 6 per CLAUDE.md build order.
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading
 
@@ -26,6 +26,8 @@ export default function App() {
       <Route path="/login" element={session ? <Navigate to="/builder" replace /> : <Login />} />
       <Route path="/builder" element={requireAuth(<Builder />)} />
       <Route path="/builder/:id" element={requireAuth(<Builder />)} />
+      {/* Public, no-login page the customer opens from WhatsApp/email */}
+      <Route path="/quote/:id" element={<PublicQuote />} />
       <Route path="*" element={<Navigate to="/builder" replace />} />
     </Routes>
   );

@@ -11,6 +11,7 @@ import {
   sumLineItems,
 } from "../lib/lineItems";
 import LineItemEditor from "../components/LineItemEditor.jsx";
+import StatusBadge from "../components/StatusBadge.jsx";
 
 // Stage 1: build and save a quote (status 'draft'). Sharing, the public page,
 // invoice conversion, PDF and the dashboard are later build-order stages.
@@ -130,7 +131,14 @@ export default function Builder() {
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-semibold">{id ? "Edit quote" : "New quote"}</h1>
-            <span className="text-xs uppercase tracking-wide rounded-full px-2 py-0.5 bg-gray-100 text-gray-600">{quote.status}</span>
+            <div className="flex items-center gap-3">
+              {id && !isDraft && (
+                <a href={`/quote/${id}`} target="_blank" rel="noreferrer" className="text-sm underline text-gray-600">
+                  Preview customer page
+                </a>
+              )}
+              <StatusBadge status={quote.status} />
+            </div>
           </div>
           {!isDraft && (
             <p className="text-sm rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-800">

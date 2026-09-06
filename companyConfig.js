@@ -1,8 +1,8 @@
 // Per-client white-label config. This is the ONLY place client-specific,
 // non-secret data lives. Swap this file per deploy. Secrets go in .env.
 export const companyConfig = {
-  businessName: "Example Landscaping",
-  logoUrl: "/logo.png",
+  businessName: "GreenRoots Landscaping",
+  logoUrl: "/green-roots-logo.svg",
   primaryColor: "#2F5233",
   accentColor: "#8B6F47",
   currency: "ZAR",

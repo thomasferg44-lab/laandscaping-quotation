@@ -1,4 +1,6 @@
 // Pure helpers for line items. No React, no Supabase.
+import { fromCents, fromQtyMilli, makeCentsFormatter, multiplyCents, sumCents, toCents, toQtyMilli } from "./money.js";
+
 // A line item is: { id, description, mode, qty, rate, total, photo_url }
 // mode is one of MODES below. The mode is only a calculator UI on top of
 // qty × rate; every mode collapses to the same shape in the database.
@@ -25,51 +27,49 @@ export function newLineItem(mode = "plain") {
   };
 }
 
-const num = (v) => {
-  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-};
+// Quantities are not money, but parse them the same way (decimal comma ok).
+const qtyOf = (item) => (item.mode === "plain" ? 1 : fromQtyMilli(toQtyMilli(item.qty)));
 
+// Line total as a stored decimal. The maths is qty × rate in integer cents
+// (see money.js); only the result is converted back.
 export function computeTotal(item) {
-  const qty = item.mode === "plain" ? 1 : num(item.qty);
-  return round2(qty * num(item.rate));
+  return fromCents(itemTotalCents(item));
 }
 
-export function round2(n) {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
+export function itemTotalCents(item) {
+  return multiplyCents(item.mode === "plain" ? 1 : item.qty, item.rate);
 }
 
 // Human-readable breakdown shown under the description, e.g. "40 m² × R85.00".
 export function describeCalc(item, formatMoney) {
   if (item.mode === "plain") return null;
   const m = MODES[item.mode];
-  const qty = num(item.qty);
-  if (!qty || !num(item.rate)) return null;
-  return `${qty} ${m.unit} × ${formatMoney(num(item.rate))}`;
+  const qty = qtyOf(item);
+  if (!qty || !toCents(item.rate)) return null;
+  return `${qty} ${m.unit} × ${formatMoney(item.rate)}`;
 }
 
+// Sums the saved per-line totals (what the customer sees per line), in cents.
 export function sumLineItems(items) {
-  return round2(items.reduce((acc, it) => acc + num(it.total), 0));
+  return fromCents(sumCents(items.map((it) => toCents(it.total))));
 }
 
-// Normalise for storage: numbers, not strings, and a recomputed total.
+// Normalise for storage: numbers, not strings, rate rounded to the cent and a
+// recomputed total.
 export function serialiseLineItem(item) {
   return {
     id: item.id,
     description: item.description.trim(),
     mode: item.mode,
-    qty: item.mode === "plain" ? 1 : num(item.qty),
-    rate: num(item.rate),
+    qty: qtyOf(item),
+    rate: fromCents(toCents(item.rate)),
     total: computeTotal(item),
     photo_url: item.photo_url || null,
   };
 }
 
+// Formats a stored decimal (or user input) for display, via integer cents.
 export function makeMoneyFormatter(currency) {
-  const fmt = new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  });
-  return (n) => fmt.format(num(n));
+  const fmt = makeCentsFormatter(currency);
+  return (n) => fmt(toCents(n));
 }

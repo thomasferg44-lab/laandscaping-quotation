@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { companyConfig } from "../../companyConfig";
 import { makeMoneyFormatter } from "../lib/lineItems";
+import { fromCents, sumCents, toCents } from "../lib/money";
 import { docRef } from "../lib/quoteDoc";
 import StatusBadge from "../components/StatusBadge.jsx";
 
@@ -23,7 +24,7 @@ const SORTS = {
   newest:   { label: "Newest",        fn: (a, b) => b.created_at.localeCompare(a.created_at) },
   updated:  { label: "Last activity", fn: (a, b) => b.updated_at.localeCompare(a.updated_at) },
   oldest:   { label: "Oldest",        fn: (a, b) => a.created_at.localeCompare(b.created_at) },
-  total:    { label: "Highest total", fn: (a, b) => Number(b.total) - Number(a.total) },
+  total:    { label: "Highest total", fn: (a, b) => toCents(b.total) - toCents(a.total) },
   customer: { label: "Customer A–Z",  fn: (a, b) => a.customer_name.localeCompare(b.customer_name) },
 };
 
@@ -92,7 +93,7 @@ export default function Dashboard() {
   // "Outstanding" = needs the landscaper's attention or money.
   const outstanding = useMemo(() => {
     const q = quotes ?? [];
-    const sum = (s) => q.filter((x) => x.status === s).reduce((a, x) => a + Number(x.total), 0);
+    const sum = (s) => fromCents(sumCents(q.filter((x) => x.status === s).map((x) => toCents(x.total))));
     return { accepted: sum("accepted"), invoiced: sum("invoiced"), awaiting: q.filter((x) => x.status === "sent" || x.status === "viewed").length };
   }, [quotes]);
 

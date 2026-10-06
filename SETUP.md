@@ -53,7 +53,7 @@ This is the **only** file with client details. Change every value:
 Logo:
 
 - [ ] Copy the client's logo into `public/`, e.g. `public/client-logo.svg`
-- [ ] Delete the old logo from `public/` (`git rm public/green-roots-logo.svg`)
+- [ ] Delete the old logo from `public/` (`git rm public/placeholder-logo.svg`)
 - [ ] Set `logoUrl` to `"/client-logo.svg"`, with the leading slash and no `public/`
 
 Optional:

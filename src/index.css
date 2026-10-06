@@ -1,3 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* iOS Safari zooms the page when a focused field is under 16px. Fields
+   inherit font-size from their <label className="text-sm">, so pin them. */
+@layer base {
+  input, select, textarea { font-size: 1rem; }
+}

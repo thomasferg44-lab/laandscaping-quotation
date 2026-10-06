@@ -139,8 +139,8 @@ export default function Dashboard() {
 
         <div className="flex gap-2">
           <input type="search" placeholder="Search customer" value={search} onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-2 text-sm bg-white">
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-base" />
+          <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-2 text-base bg-white">
             {Object.entries(SORTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>

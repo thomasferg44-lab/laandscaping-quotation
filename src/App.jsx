@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { supabase } from "./lib/supabaseClient";
+import { checkBusinessAccess } from "./lib/auth";
 import Login from "./pages/Login.jsx";
 import Builder from "./pages/Builder.jsx";
 import PublicQuote from "./pages/PublicQuote.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import NoAccess from "./components/NoAccess.jsx";
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading
@@ -15,11 +17,30 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Signed in is not enough: the login must be on the business_users
+  // allowlist. Re-checked when the user changes, not on token refreshes.
+  const userId = session?.user?.id;
+  const [access, setAccess] = useState(null); // null = checking
+  const [attempt, setAttempt] = useState(0);
+  const recheck = useCallback(() => setAttempt((n) => n + 1), []);
+  useEffect(() => {
+    setAccess(null);
+    if (!userId) return;
+    let cancelled = false;
+    checkBusinessAccess(supabase).then((a) => { if (!cancelled) setAccess(a); });
+    return () => { cancelled = true; };
+  }, [userId, attempt]);
+
   if (session === undefined) {
     return <div className="p-6 text-sm text-gray-500">Loading…</div>;
   }
 
-  const requireAuth = (el) => (session ? el : <Navigate to="/login" replace />);
+  const requireAuth = (el) => {
+    if (!session) return <Navigate to="/login" replace />;
+    if (access === null) return <div className="p-6 text-sm text-gray-500">Loading…</div>;
+    if (access !== "granted") return <NoAccess state={access} email={session.user?.email} onRetry={recheck} />;
+    return el;
+  };
 
   return (
     <Routes>

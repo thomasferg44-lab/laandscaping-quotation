@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { friendlyAuthError } from "../lib/auth";
 import { companyConfig } from "../../companyConfig";
 
-// Minimal single-user login. No signup UI: the landscaper's user is created
-// once in the Supabase dashboard (Authentication → Users) per deploy.
+// Minimal login. No signup UI: logins are created in the Supabase dashboard
+// (Authentication → Users) and given access with
+// supabase/add-business-user.sql. Sign-ups are switched off per SETUP.md.
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,8 +16,12 @@ export default function Login() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setError(friendlyAuthError(error, companyConfig.businessName));
+    } catch (e) {
+      setError(friendlyAuthError(e, companyConfig.businessName));
+    }
     setBusy(false);
   }
 

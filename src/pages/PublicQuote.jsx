@@ -1,23 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "../lib/supabaseClient";
+import { supabase, supabasePublic } from "../lib/supabaseClient";
 import { companyConfig } from "../../companyConfig";
 import { makeMoneyFormatter } from "../lib/lineItems";
-import { advanceStatus } from "../lib/quoteStatus";
+import { acceptPublicQuote, fetchPublicQuote, markPublicQuoteViewed } from "../lib/publicQuote";
 import { exportQuotePdf } from "../lib/pdfExport";
 import { docLabel, isInvoiceStatus } from "../lib/quoteDoc";
 import LineItemRow from "../components/LineItemRow.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 
 // Hosted, no-login quote page at /quote/:id. Opened by the customer, mostly on
-// a phone via WhatsApp. Reads with the anon key; RLS hides drafts and the DB
-// trigger only allows sent->viewed and sent|viewed->accepted from anon.
+// a phone via WhatsApp. The id in the link is the access token: anon has no
+// table access and reads/updates only through the get_public_quote,
+// mark_public_quote_viewed and accept_public_quote functions (publicQuote.js),
+// which never return drafts and only allow sent->viewed, sent|viewed->accepted.
 //
 // Status transitions performed here:
 //   - first open of a 'sent' quote  -> 'viewed'  (once; reloads are no-ops
 //     because the row is already 'viewed')
 //   - Accept button                 -> 'accepted'
-// We send ONLY { status }. viewed_at / accepted_at are stamped server-side.
+// viewed_at / accepted_at are stamped server-side.
 export default function PublicQuote() {
   const { id } = useParams();
   const formatMoney = useMemo(() => makeMoneyFormatter(companyConfig.currency), []);
@@ -33,10 +35,15 @@ export default function PublicQuote() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const { data, error } = await supabase.from("quotes").select("*").eq("id", id).maybeSingle();
+      let data = null;
+      try {
+        data = await fetchPublicQuote(supabasePublic, id);
+      } catch {
+        /* network/server error: show the same message as a bad link */
+      }
       if (cancelled) return;
-      if (error || !data) {
-        // RLS returns no row for drafts and unknown ids alike; treat both as not found.
+      if (!data) {
+        // Drafts, unknown and malformed tokens all come back empty.
         setNotFound(true);
         setLoading(false);
         return;
@@ -51,7 +58,8 @@ export default function PublicQuote() {
         const { data: sess } = await supabase.auth.getSession();
         if (sess.session) return;
         try {
-          const updated = await advanceStatus(id, "sent", "viewed"); // no-op if it already moved on
+          await markPublicQuoteViewed(supabasePublic, id); // no-op if it already moved on
+          const updated = await fetchPublicQuote(supabasePublic, id);
           if (!cancelled && updated) setQuote(updated);
         } catch {
           /* viewing still works even if the flip fails */
@@ -66,21 +74,17 @@ export default function PublicQuote() {
     if (!quote) return;
     setAccepting(true);
     setError(null);
-    let data;
+    let result;
     try {
-      data = await advanceStatus(id, ["sent", "viewed"], "accepted");
+      result = await acceptPublicQuote(supabasePublic, id);
     } catch {
       setAccepting(false);
       setError("Sorry, we couldn't record your acceptance. Please try again or contact us.");
       return;
     }
     setAccepting(false);
-    if (data) setQuote(data);
-    else {
-      // Row was not updatable (already accepted elsewhere). Refresh to show truth.
-      const { data: fresh } = await supabase.from("quotes").select("*").eq("id", id).maybeSingle();
-      if (fresh) setQuote(fresh);
-    }
+    // Fresh copy either way: if it was already accepted elsewhere, show that.
+    if (result.quote) setQuote(result.quote);
   }
 
   if (loading) return <Shell><p className="text-sm text-gray-500">Loading quote…</p></Shell>;

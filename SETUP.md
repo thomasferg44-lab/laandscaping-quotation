@@ -68,10 +68,18 @@ Optional:
       This creates the table, security rules, triggers, live updates and the photo bucket.
       Skip `supabase/patches/`: those files are only for older projects.
 - [ ] Authentication → Sign In / Providers → turn **off** "Allow new users to sign up".
-      **Don't skip this.** Any logged-in user can see every quote, so nobody
-      but the client may be able to create an account.
+      **Don't skip this.** Supabase leaves sign-ups on by default, so anyone
+      with the site's public key could otherwise create a login. They still
+      couldn't see the client's quotes (only allowlisted logins can), but
+      there's no reason to let them in at all.
 - [ ] Authentication → Users → **Add user → Create new user**: the client's
       email, a strong temporary password, "Auto confirm user" **on**
+- [ ] Give that login access: open `supabase/add-business-user.sql`, put the
+      client's email on the marked line, paste it into the SQL editor → Run.
+      The result should list their email. **Skip this and the client sees
+      "No access yet" after logging in.**
+- [ ] Paste all of `supabase/verify-rls.sql` into the SQL editor → Run.
+      Every row must say **PASS**. It changes nothing and works on an empty project.
 - [ ] Project Settings → API: keep this tab open for the next step
       (Project URL and the `anon` `public` key)
 
@@ -90,8 +98,6 @@ Optional:
 - [ ] Build one test quote and download its PDF. Logo, name, colours, email and
       number should all be the client's. Use `Test Customer` / `+27000000000`.
       For a full run-through, follow `docs/manual-test-whatsapp.md`.
-- [ ] Optional: send one quote, then paste `supabase/verify-rls.sql` into the
-      SQL editor. Every row should say PASS.
 - [ ] Delete the test quote
 - [ ] Commit, open a PR for `client-config`, and merge it
 
@@ -141,6 +147,26 @@ Send the login details in two separate messages:
 There's no change-password screen yet. If they want a new password, set it
 for them in Supabase → Authentication → Users.
 
+## Adding the client's staff
+
+Each staff member gets their own login. They all see and edit all of the
+business's quotes.
+
+- [ ] Supabase → Authentication → Users → **Add user → Create new user**:
+      their email, a strong temporary password, "Auto confirm user" **on**
+- [ ] Run `supabase/add-business-user.sql` with their email, and a note like
+      `'staff: Sipho'` on the second marked line
+- [ ] Send them the site link and password the same way as in step 6
+
+To remove someone, delete their user under Authentication → Users. That ends
+their login and their allowlist entry. To keep the login but block access,
+use the `delete from public.business_users …` line at the bottom of
+`add-business-user.sql`.
+
+A login that exists but isn't allowlisted sees a "No access yet" screen.
+At the database level it can only see quotes it created itself, and with
+sign-ups off nobody can make one of those.
+
 ---
 
 ## Done when
@@ -148,5 +174,6 @@ for them in Supabase → Authentication → Users.
 - [ ] The live site shows the client's name, logo and colours
 - [ ] A quote sent to a test phone opens without a login and its PDF matches
 - [ ] Sign-ups are turned off in Supabase
+- [ ] `verify-rls.sql` shows PASS on every row
 - [ ] `.env` was never committed (`git log --all -- .env` prints nothing)
 - [ ] The client has received both messages

@@ -55,7 +55,7 @@ Those tools are global, USD/GBP-priced, feature-heavy platforms built around US/
 3. Copy `.env.example` to `.env` and fill in your Supabase project URL + anon key
 4. Edit `companyConfig.js` with the client's business name, colors, logo, WhatsApp number, and contact email
 5. Run the Supabase schema: paste `/supabase/schema.sql` into the Supabase SQL editor for this client's project (creates the `quotes` table, RLS policies, triggers, and the `quote-photos` storage bucket). The file is idempotent, so re-pasting it after a schema change is safe. Files in `/supabase/patches` are incremental changes for projects already set up.
-6. Create the landscaper's login: Supabase dashboard → Authentication → Users → Add user (email + password). There is no signup screen by design; one user per deploy.
+6. Create the landscaper's login: Supabase dashboard → Authentication → Users → Add user (email + password). There is no signup screen by design; turn sign-ups off under Authentication → Sign In / Providers. Then allowlist the login with `/supabase/add-business-user.sql`, and run `/supabase/verify-rls.sql` (every row should say PASS). See SETUP.md for the full checklist and adding staff.
 7. `npm run dev` and sign in at `/login`. You land on the dashboard; the header shows "● live" once Realtime is connected, or "○ polling" (20s) if the table isn't in the `supabase_realtime` publication yet (schema.sql adds it).
 
 ## Deploying a new client

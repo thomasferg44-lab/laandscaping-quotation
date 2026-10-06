@@ -1,12 +1,14 @@
 -- DropStack Quote & Invoice Tool (landscaping) — schema for ONE client deploy.
 -- One Supabase project per client, so there is no client_id column.
--- Paste this whole file into the Supabase SQL editor for the client's project.
+-- Paste this whole file into the Supabase SQL editor for the client's project,
+-- then run supabase/add-business-user.sql for the landscaper's login.
 
 -- ---------------------------------------------------------------------------
 -- quotes: one record serves as the quote AND, once status advances, the invoice
 -- ---------------------------------------------------------------------------
 create table if not exists public.quotes (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default gen_random_uuid(), -- random v4: doubles as the public link token
+  owner_id uuid default auth.uid() references auth.users(id) on delete set null,
   customer_name text not null,
   customer_phone text,        -- for the WhatsApp share link
   customer_email text,        -- for the mailto share link
@@ -27,6 +29,11 @@ create table if not exists public.quotes (
   updated_at timestamptz not null default now()
 );
 
+-- Re-pasting over a table created before owner_id existed:
+alter table public.quotes
+  add column if not exists owner_id uuid default auth.uid()
+    references auth.users(id) on delete set null;
+create index if not exists quotes_owner_id_idx on public.quotes (owner_id);
 create index if not exists quotes_status_idx on public.quotes (status);
 create index if not exists quotes_created_at_idx on public.quotes (created_at desc);
 
@@ -45,33 +52,44 @@ create trigger quotes_set_updated_at
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security
+-- anon: no table access; the public page uses the functions further down.
+-- authenticated: own quotes, or all quotes if on the business_users allowlist.
 -- ---------------------------------------------------------------------------
 alter table public.quotes enable row level security;
 
--- Landscaper (authenticated session): full access. Single-user-per-deploy tool.
-drop policy if exists "landscaper full access" on public.quotes;
-create policy "landscaper full access" on public.quotes
+-- Staff of the business. Rows are added by hand in the SQL editor
+-- (supabase/add-business-user.sql); the app never writes here.
+create table if not exists public.business_users (
+  user_id  uuid primary key references auth.users(id) on delete cascade,
+  note     text,
+  added_at timestamptz not null default now()
+);
+alter table public.business_users enable row level security;
+-- No policies: anon/authenticated can't read or write it. Only the
+-- is_business_user() function below (security definer) looks inside.
+revoke all on public.business_users from anon, authenticated;
+
+create or replace function public.is_business_user()
+returns boolean
+language sql stable security definer
+set search_path = ''
+as $$
+  select exists (select 1 from public.business_users where user_id = auth.uid());
+$$;
+
+drop policy if exists "landscaper full access"       on public.quotes;
+drop policy if exists "public can view sent quotes"  on public.quotes;
+drop policy if exists "public can advance status"    on public.quotes;
+drop policy if exists "owner or business user"       on public.quotes;
+
+create policy "owner or business user" on public.quotes
   for all to authenticated
-  using (true) with check (true);
+  using      (public.is_business_user() or owner_id = (select auth.uid()))
+  with check (public.is_business_user() or owner_id = (select auth.uid()));
 
--- Public quote page (anon key): may SELECT any row, but only by id.
--- Postgres cannot restrict "by id only" in a policy; the protection is that
--- ids are unguessable UUIDs and the anon role gets no listing UI. To make
--- "SELECT *" from anon return nothing useful, we additionally block drafts,
--- so an anon caller can only see quotes the landscaper has chosen to send.
-drop policy if exists "public can view sent quotes" on public.quotes;
-create policy "public can view sent quotes" on public.quotes
-  for select to anon
-  using (status <> 'draft');
-
--- Public page may UPDATE a row only to advance status sent->viewed or
--- sent/viewed->accepted. Column-level restriction is enforced by the
--- trigger below (anon cannot touch anything but status + timestamps).
-drop policy if exists "public can advance status" on public.quotes;
-create policy "public can advance status" on public.quotes
-  for update to anon
-  using (status in ('sent','viewed'))
-  with check (status in ('viewed','accepted'));
+-- Belt and braces: with no anon policy RLS already returns nothing, but
+-- revoking the table grants makes any anon query fail outright.
+revoke all on public.quotes from anon;
 
 -- Stamp status timestamps for ANY role. Whenever status moves into one of
 -- the timestamped states, fill its *_at column if it is still empty. The
@@ -140,10 +158,102 @@ create trigger quotes_a_guard_anon_update
   for each row execute function public.guard_anon_quote_update();
 
 -- ---------------------------------------------------------------------------
+-- Public quote page functions (anon only)
+-- ---------------------------------------------------------------------------
+-- Token must be a canonical uuid; anything else (null, '', '%', '*') returns
+-- nothing rather than erroring, and there is no way to pass a pattern.
+-- Returns only what the public page and its PDF render: no owner_id,
+-- parent_quote_id, portion or updated_at. Drafts are never returned.
+-- Customer phone/email are included because the PDF prints them; the person
+-- holding the link is that customer.
+drop function if exists public.get_public_quote(text);
+create function public.get_public_quote(p_token text)
+returns table (
+  id uuid, status text,
+  customer_name text, customer_phone text, customer_email text,
+  line_items jsonb, subtotal numeric, total numeric,
+  created_at timestamptz, viewed_at timestamptz, accepted_at timestamptz,
+  invoiced_at timestamptz, paid_at timestamptz
+)
+language plpgsql stable security definer
+set search_path = ''
+as $$
+begin
+  if p_token is null
+     or p_token !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return;
+  end if;
+  return query
+    select q.id, q.status,
+           q.customer_name, q.customer_phone, q.customer_email,
+           q.line_items, q.subtotal, q.total,
+           q.created_at, q.viewed_at, q.accepted_at, q.invoiced_at, q.paid_at
+    from public.quotes q
+    where q.id = p_token::uuid
+      and q.status <> 'draft'
+    limit 1;
+end $$;
+
+-- First open by the customer. No-op unless the quote is currently 'sent'.
+-- viewed_at is stamped by the quotes_stamp_status_timestamps trigger.
+create or replace function public.mark_public_quote_viewed(p_token text)
+returns void
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+begin
+  if p_token is null
+     or p_token !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return;
+  end if;
+  update public.quotes set status = 'viewed'
+  where id = p_token::uuid and status = 'sent';
+end $$;
+
+-- Accept button. Returns true if this call accepted the quote, false if the
+-- token is unknown or the quote isn't in sent/viewed (already accepted,
+-- invoiced, or still a draft).
+create or replace function public.accept_public_quote(p_token text)
+returns boolean
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+begin
+  if p_token is null
+     or p_token !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+  update public.quotes set status = 'accepted'
+  where id = p_token::uuid and status in ('sent','viewed');
+  return found;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- EXECUTE grants for EVERY function in this schema.
+-- Postgres grants EXECUTE to PUBLIC on new functions, and Supabase's default
+-- privileges also grant it to anon and authenticated explicitly, so revoking
+-- from PUBLIC alone is not enough: revoke from all three, then grant back.
+-- (Trigger functions only need EXECUTE when the trigger is created, not when
+-- it fires, so revoking them is safe.)
+-- ---------------------------------------------------------------------------
+revoke execute on function public.get_public_quote(text)         from public, anon, authenticated;
+revoke execute on function public.mark_public_quote_viewed(text) from public, anon, authenticated;
+revoke execute on function public.accept_public_quote(text)      from public, anon, authenticated;
+revoke execute on function public.is_business_user()             from public, anon, authenticated;
+revoke execute on function public.set_updated_at()               from public, anon, authenticated;
+revoke execute on function public.stamp_status_timestamps()      from public, anon, authenticated;
+revoke execute on function public.guard_anon_quote_update()      from public, anon, authenticated;
+
+grant execute on function public.get_public_quote(text)         to anon;
+grant execute on function public.mark_public_quote_viewed(text) to anon;
+grant execute on function public.accept_public_quote(text)      to anon;
+-- Called inside the authenticated RLS policy and by the app's access check.
+grant execute on function public.is_business_user()             to authenticated;
+
+-- ---------------------------------------------------------------------------
 -- Realtime: let the landscaper's dashboard receive row changes instantly.
 -- Only authenticated clients can subscribe usefully: realtime respects RLS,
--- so anon would only ever see non-draft rows, and the public page doesn't
--- subscribe at all. The dashboard also polls, so this is an enhancement,
+-- and anon has no access to the table; the public page doesn't subscribe. The dashboard also polls, so this is an enhancement,
 -- not a requirement.
 -- ---------------------------------------------------------------------------
 do $$
@@ -159,7 +269,8 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- Storage: line-item photos
 -- Public-read bucket so the hosted quote page can show thumbnails with no auth.
--- Only the authenticated landscaper can upload/replace/delete.
+-- Signed-in users can upload; only the uploader or a business user can
+-- replace or delete.
 -- ---------------------------------------------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('quote-photos', 'quote-photos', true, 5242880,
@@ -182,9 +293,11 @@ create policy "landscaper upload quote photos" on storage.objects
 drop policy if exists "landscaper update quote photos" on storage.objects;
 create policy "landscaper update quote photos" on storage.objects
   for update to authenticated
-  using (bucket_id = 'quote-photos');
+  using (bucket_id = 'quote-photos'
+         and (public.is_business_user() or owner_id = (select auth.uid())::text));
 
 drop policy if exists "landscaper delete quote photos" on storage.objects;
 create policy "landscaper delete quote photos" on storage.objects
   for delete to authenticated
-  using (bucket_id = 'quote-photos');
+  using (bucket_id = 'quote-photos'
+         and (public.is_business_user() or owner_id = (select auth.uid())::text));

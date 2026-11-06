@@ -292,7 +292,7 @@ export default function PublicQuote() {
             <p className="text-[15px]">{isInvoiceStatus(quote.status) ? "This quote was accepted and is now an invoice." : `Accepted. ${companyConfig.businessName} will be in touch to arrange the work.`}</p>
           </div>
         )}
-        <PdfButton label={label} onPdf={pdf} />
+        {!(justAccepted && accepted) && <PdfButton label={label} onPdf={pdf} />}
       </div>
 
       <AcceptSheet open={sheet} onClose={() => setSheet(false)} quoteId={id} tiered={tiered} tier={tier} tierName={tierName}

@@ -14,10 +14,12 @@ import useDemoData from "../hooks/useDemoData";
 export default function Settings() {
   const store = useQuotes();
   const demo = useDemoData();
-  const [email, setEmail] = useState(null);
+  const [user, setUser] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  useEffect(() => { supabase.auth.getSession().then(({ data }) => setEmail(data.session?.user?.email ?? null)); }, []);
-  const demoCount = (store?.quotes ?? []).filter((q) => q.is_demo).length;
+  useEffect(() => { supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null)); }, []);
+  const email = user?.email;
+  // Only this login's demo rows: a staff login can see other owners' rows.
+  const demoCount = (store?.quotes ?? []).filter((q) => q.is_demo && q.owner_id === user?.id).length;
   const dep = companyConfig.depositDefault;
   const wa = normaliseWhatsAppNumber(companyConfig.whatsappNumber);
 

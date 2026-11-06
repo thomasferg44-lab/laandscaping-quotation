@@ -123,7 +123,7 @@ export default function QuoteDetail() {
             {quote.customer_phone && <Info label="WhatsApp" value={quote.customer_phone} />}
             {quote.customer_email && <Info label="Email" value={quote.customer_email} />}
             {tiered && <Info label="Options" value={quoteTiers(quote).map((t) => t.name).join(" / ")} />}
-            {quote.valid_until && <Info label="Valid until" value={dateLong(quote.valid_until, true)} />}
+            {quote.valid_until && !accepted && <Info label="Valid until" value={dateLong(quote.valid_until, true)} />}
           </dl>
         </section>
 

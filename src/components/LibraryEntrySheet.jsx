@@ -1,17 +1,22 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Sheet from "./ui/Sheet.jsx";
 import { NumberField, Segmented, TextField } from "./ui/Field.jsx";
 import { MODES, MODE_KEYS } from "../lib/lineItems";
 import { validateLibraryEntry } from "../lib/libraryForm";
 
-// Create / edit one item-library entry.
-export default function LibraryEntrySheet({ open, onClose, initial, onSave, title }) {
+// Create / edit one item-library entry. Mounted fresh for every opening
+// (callers render it only while open, with a key per entry), so state can
+// never carry over from a previous entry.
+export default function LibraryEntrySheet(props) {
+  if (!props.open || !props.initial) return null;
+  return <EntrySheet key={props.initial.id ?? "new"} {...props} />;
+}
+
+function EntrySheet({ open, onClose, initial, onSave, title }) {
   const [e, setE] = useState(initial);
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState(null);
-  useEffect(() => { if (open) { setE(initial); setSubmitted(false); setSaveError(null); } }, [open, initial]);
-  if (!e) return null;
   const errors = validateLibraryEntry(e) ?? {};
   const m = MODES[e.mode] ?? MODES.unit;
 

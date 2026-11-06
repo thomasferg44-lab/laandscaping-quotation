@@ -2,8 +2,9 @@
 // the SIGNED-IN business only, through the normal authenticated client, so
 // RLS decides what it can touch. Every seeded row carries is_demo = true;
 // removal deletes rows that are is_demo AND owned by the caller, nothing
-// else. Customer names end in "(demo)" and contact details are test values,
-// so a seeded row can never be mistaken for a real customer.
+// else. Contact details are test values (+2700000000x, @example.com), and
+// every surface shows a Demo pill (app) or a "demo quote" note (customer
+// page, PDF), so a seeded row can never be mistaken for a real customer.
 import { computeTotal, newLineItem, serialiseLineItem } from "./lineItems.js";
 import { fromCents } from "./money.js";
 import { addDays, baseCents, buildAcceptanceSnapshot, fromPriceCents, todayInZone } from "./quoteMath.js";
@@ -67,7 +68,7 @@ export function buildDemoQuotes(now = new Date()) {
 
   // 1. Draft, still being built
   quotes.push(base({
-    customer_name: "Lerato K. (demo)",
+    customer_name: "Lerato K.",
     customer_phone: "+27000000001",
     status: "draft",
     created_at: iso(now, 0, 8),
@@ -79,7 +80,7 @@ export function buildDemoQuotes(now = new Date()) {
 
   // 2. Sent, with a 50% deposit
   quotes.push(base({
-    customer_name: "Pieter V. (demo)",
+    customer_name: "Pieter V.",
     customer_phone: "+27000000002",
     customer_email: "demo2@example.com",
     status: "sent",
@@ -96,7 +97,7 @@ export function buildDemoQuotes(now = new Date()) {
 
   // 3. Viewed, three option tiers
   const tierQuote = {
-    customer_name: "Ayesha D. (demo)",
+    customer_name: "Ayesha D.",
     customer_phone: "+27000000003",
     status: "viewed",
     created_at: iso(now, 3),
@@ -126,7 +127,7 @@ export function buildDemoQuotes(now = new Date()) {
 
   // 4. Viewed, with optional add-ons
   quotes.push(base({
-    customer_name: "Johan B. (demo)",
+    customer_name: "Johan B.",
     customer_phone: "+27000000004",
     status: "viewed",
     created_at: iso(now, 5),
@@ -143,7 +144,7 @@ export function buildDemoQuotes(now = new Date()) {
 
   // 5. Accepted: tier-free, optional add-on taken, 30% deposit, typed name
   const accepted = base({
-    customer_name: "Nomsa T. (demo)",
+    customer_name: "Nomsa T.",
     customer_phone: "+27000000005",
     status: "accepted",
     created_at: iso(now, 9),
@@ -160,7 +161,7 @@ export function buildDemoQuotes(now = new Date()) {
   });
   const snap = buildAcceptanceSnapshot(accepted, { optionalIds: [accepted.line_items[2].id] }).snapshot;
   Object.assign(accepted, {
-    accepted_name: "Nomsa T. (demo)",
+    accepted_name: "Nomsa T.",
     accepted_consent: true,
     accepted_tier_id: null,
     accepted_selection: snap,
@@ -171,7 +172,7 @@ export function buildDemoQuotes(now = new Date()) {
 
   // 6. Expired: sent, never accepted, valid-until in the past
   quotes.push(base({
-    customer_name: "Ruan S. (demo)",
+    customer_name: "Ruan S.",
     customer_phone: "+27000000006",
     status: "sent",
     created_at: iso(now, 40),
@@ -185,7 +186,7 @@ export function buildDemoQuotes(now = new Date()) {
 
   // 7. Invoiced
   const invoiced = base({
-    customer_name: "Grace M. (demo)",
+    customer_name: "Grace M.",
     customer_phone: "+27000000007",
     status: "invoiced",
     created_at: iso(now, 21),
@@ -199,7 +200,7 @@ export function buildDemoQuotes(now = new Date()) {
     ],
   });
   const snap7 = buildAcceptanceSnapshot(invoiced).snapshot;
-  Object.assign(invoiced, { accepted_name: "Grace M. (demo)", accepted_consent: true, accepted_selection: snap7 });
+  Object.assign(invoiced, { accepted_name: "Grace M.", accepted_consent: true, accepted_selection: snap7 });
   quotes.push(invoiced);
 
   return quotes;

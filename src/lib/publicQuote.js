@@ -37,3 +37,28 @@ export async function acceptPublicQuote(client, token) {
   if (error) throw error;
   return { accepted: data === true, quote: await fetchPublicQuote(client, token) };
 }
+
+const isMissingFunction = (e) => e?.code === "PGRST202" || /could not find the function/i.test(String(e?.message ?? ""));
+
+// Typed-name acceptance (2026-11-05 patch): full name, consent tick, chosen
+// tier and ticked optional ids. The server recomputes every total.
+// Returns { result, quote, legacy } where result is the server's word:
+// 'accepted' | 'not_open' | 'expired' | 'invalid_tier' | 'name_required'
+// | 'consent_required' | 'not_found'.
+//
+// legacyFallback: if the patch isn't applied yet (function missing), a
+// single-option quote is accepted through the old accept_public_quote so
+// customers are never stuck; the typed name is then NOT stored (legacy=true).
+// Never used for tiered quotes: the old function can't record a tier.
+export async function acceptPublicQuoteV2(client, token, { fullName, consent, tierId = null, optionalIds = [] }, { legacyFallback = false } = {}) {
+  if (!isQuoteToken(token)) return { result: "not_found", quote: null, legacy: false };
+  const { data, error } = await client.rpc("accept_public_quote_v2", {
+    p_token: token, p_full_name: fullName, p_consent: consent === true, p_tier_id: tierId, p_optional_ids: optionalIds,
+  });
+  if (error) {
+    if (!(legacyFallback && isMissingFunction(error))) throw error;
+    const { accepted, quote } = await acceptPublicQuote(client, token);
+    return { result: accepted ? "accepted" : "not_open", quote, legacy: true };
+  }
+  return { result: data ?? "not_found", quote: await fetchPublicQuote(client, token), legacy: false };
+}

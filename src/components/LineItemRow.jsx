@@ -1,19 +1,25 @@
 import { describeCalc } from "../lib/lineItems";
 
-// Read-only, compact rendering of one saved line item. Reused later on the
-// hosted quote page and the dashboard preview.
-export default function LineItemRow({ item, formatMoney }) {
+// One line of the quote document (public page, quote detail). Description
+// left, amount right on a shared baseline; calc + detail in quiet type.
+export default function LineItemRow({ item, formatMoney, muted = false, trailing }) {
   const breakdown = describeCalc(item, formatMoney);
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
+    <div className="flex items-start gap-3 py-3.5 min-h-[56px]">
       {item.photo_url && (
-        <img src={item.photo_url} alt="" className="h-14 w-14 rounded-lg object-cover border border-gray-200 flex-shrink-0" />
+        <a href={item.photo_url} target="_blank" rel="noreferrer" className="flex-shrink-0">
+          <img src={item.photo_url} alt={`Photo: ${item.description}`} loading="lazy" className="h-14 w-14 rounded-[12px] object-cover bg-fill" />
+        </a>
       )}
       <div className="flex-1 min-w-0">
-        <div className="font-medium break-words">{item.description || <span className="text-gray-400">Untitled item</span>}</div>
-        {breakdown && <div className="text-xs text-gray-500">{breakdown}</div>}
+        <div className={`text-[15px] font-medium break-words ${muted ? "text-ink-3" : "text-ink"}`}>{item.description || "Untitled item"}</div>
+        {item.detail && <div className="text-[13px] text-ink-3 break-words">{item.detail}</div>}
+        {breakdown && <div className="text-[13px] text-ink-3 tabular">{breakdown}</div>}
       </div>
-      <div className="font-semibold whitespace-nowrap">{formatMoney(item.total)}</div>
+      <div className="text-right flex-shrink-0">
+        <div className={`text-[15px] font-semibold tabular whitespace-nowrap ${muted ? "text-ink-3" : ""}`}>{formatMoney(item.total)}</div>
+        {trailing}
+      </div>
     </div>
   );
 }

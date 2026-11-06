@@ -127,3 +127,36 @@ describe("WhatsApp share link", () => {
     expect(buildWhatsAppUrl({ phone: "", message: "x" })).toBeNull();
   });
 });
+
+import { buildAcceptanceSnapshot } from "./quoteMath.js";
+describe("PDF: compete-pass content", () => {
+  const items = buildQuote().line_items.map(serialiseLineItem);
+
+  it("tiered quote lists every option with its own total", async () => {
+    const q = { ...buildQuote(), status: "sent", line_items: items, subtotal: 1, total: 1,
+      tiers: [{ id: "g", name: "Good", line_items: items.slice(0, 2) }, { id: "b", name: "Best", line_items: items }] };
+    const raw = (await buildQuotePdf(q)).doc.output();
+    for (const t of ["Option 1: Good", "Option 2: Best", "R 3 400,30", "R 7 901,52", "Choose one option"]) expect(raw).toContain(t);
+  });
+
+  it("optional items are marked and left out of the total; deposit split shown", async () => {
+    const withOpt = [...items, { ...items[0], id: "opt", description: "Irrigation", total: 999.99, optional: true }];
+    const q = { ...buildQuote(), status: "sent", line_items: withOpt, subtotal: 7901.52, total: 7901.52, deposit_type: "percent", deposit_value: 50, valid_until: "2026-12-31" };
+    const raw = (await buildQuotePdf(q)).doc.output();
+    for (const t of ["Optional add-on, not in the total", "R 7 901,52", "Deposit due on acceptance", "R 3 950,76", "Valid until"]) expect(raw).toContain(t);
+  });
+
+  it("accepted quote shows the frozen selection, typed name and payment instructions", async () => {
+    const base = { ...buildQuote(), status: "accepted", line_items: items, deposit_type: "fixed", deposit_value: 1000,
+      tiers: [{ id: "g", name: "Good", line_items: items.slice(0, 2) }, { id: "b", name: "Best", line_items: items }] };
+    const { snapshot } = buildAcceptanceSnapshot({ ...base, status: "sent" }, { tierId: "b" });
+    const q = { ...base, accepted_selection: snapshot, accepted_name: "Test Customer", accepted_at: "2026-10-02T09:30:00Z", total: snapshot.total, subtotal: snapshot.total };
+    const raw = (await buildQuotePdf(q)).doc.output();
+    for (const t of ["Option chosen: Best", "Accepted by", "typed their full name", "R 7 901,52", "Deposit due now", "R 1 000,00", "R 6 901,52", "How to pay"]) expect(raw).toContain(t);
+  });
+
+  it("never prints the placeholder WhatsApp number", async () => {
+    const raw = (await buildQuotePdf({ ...buildQuote(), line_items: items, subtotal: 1, total: 1 })).doc.output();
+    expect(raw).not.toContain("XXXX");
+  });
+});

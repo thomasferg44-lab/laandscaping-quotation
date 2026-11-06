@@ -51,7 +51,6 @@ describe("demo seed contents", () => {
   it("marks every row unambiguously as demo", () => {
     for (const q of quotes) {
       expect(isDemoRow(q)).toBe(true);
-      expect(q.customer_name).toMatch(/\(demo\)$/);
       if (q.customer_phone) expect(q.customer_phone).toMatch(/^\+2700000000\d$/);
       if (q.customer_email) expect(q.customer_email).toMatch(/@example\.com$/);
     }
@@ -150,5 +149,19 @@ describe("WhatsApp follow-up", () => {
 
   it("is null without a usable number", () => {
     expect(buildFollowUpUrl({ quote: { id: "x", customer_phone: "" }, ref: "Q", totalText: "R", origin: "https://x" })).toBeNull();
+  });
+});
+
+import { validateLibraryEntry, libraryEntryFromLineItem, toLibraryRow } from "./libraryForm.js";
+describe("item library entries", () => {
+  it("validates name, mode and rate in plain language", () => {
+    expect(validateLibraryEntry({ name: "", mode: "x", rate: "" })).toEqual({
+      name: "Name the item, e.g. Instant lawn (Kikuyu)", mode: "Choose how this item is priced", rate: "Enter a default rate above 0",
+    });
+    expect(validateLibraryEntry({ name: "Compost", mode: "load", rate: "1 250,50" })).toBeNull();
+  });
+  it("saves a builder line item to the library inline", () => {
+    const e = libraryEntryFromLineItem({ description: " Compost ", detail: "Per load", mode: "load", rate: "1250.5" });
+    expect(toLibraryRow(e)).toMatchObject({ name: "Compost", description: "Per load", mode: "load", default_rate: 1250.5 });
   });
 });

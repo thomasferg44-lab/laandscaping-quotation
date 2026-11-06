@@ -109,3 +109,45 @@ describe("acceptPublicQuote", () => {
     await expect(acceptPublicQuote(client, TOKEN)).rejects.toEqual({ message: "denied" });
   });
 });
+
+import { acceptPublicQuoteV2 } from "./publicQuote.js";
+describe("acceptPublicQuoteV2", () => {
+  it("sends the typed name, consent, tier and add-ons; returns the server's word + fresh quote", async () => {
+    const client = stubClient({
+      accept_public_quote_v2: { data: "accepted", error: null },
+      get_public_quote: { data: [{ ...QUOTE, status: "accepted" }], error: null },
+    });
+    const r = await acceptPublicQuoteV2(client, TOKEN, { fullName: "Test Customer", consent: true, tierId: "best", optionalIds: ["x"] });
+    expect(r).toEqual({ result: "accepted", quote: { ...QUOTE, status: "accepted" }, legacy: false });
+    expect(client.calls[0]).toEqual(["accept_public_quote_v2", { p_token: TOKEN, p_full_name: "Test Customer", p_consent: true, p_tier_id: "best", p_optional_ids: ["x"] }]);
+  });
+
+  it("passes refusals through (expired is enforced server-side)", async () => {
+    const client = stubClient({ accept_public_quote_v2: { data: "expired", error: null }, get_public_quote: { data: [QUOTE], error: null } });
+    expect((await acceptPublicQuoteV2(client, TOKEN, { fullName: "A B", consent: true })).result).toBe("expired");
+  });
+
+  it("falls back to the old accept for a single-option quote when the patch isn't applied", async () => {
+    const client = stubClient({
+      accept_public_quote_v2: { data: null, error: { code: "PGRST202", message: "Could not find the function" } },
+      accept_public_quote: { data: true, error: null },
+      get_public_quote: { data: [{ ...QUOTE, status: "accepted" }], error: null },
+    });
+    const r = await acceptPublicQuoteV2(client, TOKEN, { fullName: "A B", consent: true }, { legacyFallback: true });
+    expect(r.result).toBe("accepted");
+    expect(r.legacy).toBe(true);
+  });
+
+  it("never falls back for a tiered quote, or on other errors", async () => {
+    const missing = stubClient({ accept_public_quote_v2: { data: null, error: { code: "PGRST202" } } });
+    await expect(acceptPublicQuoteV2(missing, TOKEN, { fullName: "A B", consent: true })).rejects.toEqual({ code: "PGRST202" });
+    const boom = stubClient({ accept_public_quote_v2: { data: null, error: { message: "boom" } } });
+    await expect(acceptPublicQuoteV2(boom, TOKEN, { fullName: "A B", consent: true }, { legacyFallback: true })).rejects.toEqual({ message: "boom" });
+  });
+
+  it("skips malformed tokens", async () => {
+    const client = stubClient();
+    expect((await acceptPublicQuoteV2(client, "nope", { fullName: "A B", consent: true })).result).toBe("not_found");
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+});

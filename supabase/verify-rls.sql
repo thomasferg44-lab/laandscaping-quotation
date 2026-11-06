@@ -206,7 +206,7 @@ begin
       order by 1
     loop
       txt := case
-        when r.fn like 'get_public_quote(%' or r.fn like 'mark_public_quote_viewed(%' or r.fn like 'accept_public_quote(%'
+        when r.fn like 'get_public_quote(%' or r.fn like 'mark_public_quote_viewed(%' or r.fn like 'accept_public_quote(%' or r.fn like 'accept_public_quote_v2(%'
           then case when r.anon_x and not r.auth_x then 'PASS: anon only' else 'FAIL: anon=' || r.anon_x || ' authenticated=' || r.auth_x end
         when r.fn like 'is_business_user(%'
           then case when r.auth_x and not r.anon_x then 'PASS: authenticated only' else 'FAIL: anon=' || r.anon_x || ' authenticated=' || r.auth_x end

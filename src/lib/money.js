@@ -93,3 +93,10 @@ export function makeCentsFormatter(currency) {
   const fmt = new Intl.NumberFormat("en-ZA", { style: "currency", currency, minimumFractionDigits: 2 });
   return (cents) => fmt.format(centsToDecimalString(cents));
 }
+
+// pct% of an amount in cents, rounded half away from zero. pct may carry up
+// to 2 decimals ("33.33"). Used for percentage deposits.
+export function percentOfCents(cents, pct) {
+  const hundredths = parseScaled(pct, 2); // 50 -> 5000n
+  return toSafeNumber(divRound(BigInt(cents) * hundredths, 10000n));
+}

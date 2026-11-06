@@ -1,7 +1,10 @@
 // Pure helpers for line items. No React, no Supabase.
 import { fromCents, fromQtyMilli, makeCentsFormatter, multiplyCents, sumCents, toCents, toQtyMilli } from "./money.js";
 
-// A line item is: { id, description, mode, qty, rate, total, photo_url }
+// A line item is: { id, description, mode, qty, rate, total, photo_url,
+//                   detail?, optional? }
+// detail is an optional quiet second line (e.g. from the item library);
+// optional marks a customer-toggled add-on (see quoteMath.js).
 // mode is one of MODES below. The mode is only a calculator UI on top of
 // qty × rate; every mode collapses to the same shape in the database.
 
@@ -24,7 +27,22 @@ export function newLineItem(mode = "plain") {
     rate: "",
     total: 0,
     photo_url: null,
+    detail: "",
+    optional: false,
   };
+}
+
+// A builder line item pre-filled from an item-library entry.
+export function lineItemFromLibrary(entry) {
+  const mode = MODES[entry.mode] ? entry.mode : "unit";
+  const item = {
+    ...newLineItem(mode),
+    description: entry.name ?? "",
+    detail: entry.description ?? "",
+    rate: entry.default_rate == null ? "" : String(entry.default_rate),
+  };
+  if (mode === "plain") item.total = computeTotal(item);
+  return item;
 }
 
 // Quantities are not money, but parse them the same way (decimal comma ok).
@@ -65,7 +83,29 @@ export function serialiseLineItem(item) {
     rate: fromCents(toCents(item.rate)),
     total: computeTotal(item),
     photo_url: item.photo_url || null,
+    ...(item.detail?.trim() ? { detail: item.detail.trim() } : {}),
+    ...(item.optional ? { optional: true } : {}),
   };
+}
+
+// Builder-side validation for one line item. Returns { field: message }.
+// Blank rows (no description, no amount) are dropped on save, not errors.
+export function validateLineItem(item) {
+  const errors = {};
+  const blank = !item.description?.trim() && !toCents(item.rate);
+  if (blank) return errors;
+  if (!item.description?.trim()) errors.description = "Describe the work, e.g. Lay instant lawn";
+  if (item.mode !== "plain" && !(toQtyMilli(item.qty) > 0)) {
+    errors.qty = `Enter ${MODES[item.mode].qtyLabel.toLowerCase()} above 0`;
+  }
+  if (!(toCents(item.rate) > 0)) errors.rate = item.mode === "plain" ? "Enter an amount above 0" : "Enter a rate above 0";
+  return errors;
+}
+
+// Steppers: +/- 1 on the quantity, never below 0, keeping decimals typed.
+export function stepQty(qty, delta) {
+  const milli = toQtyMilli(qty) + delta * 1000;
+  return String(fromQtyMilli(Math.max(0, milli)));
 }
 
 // Formats a stored decimal (or user input) for display, via integer cents.

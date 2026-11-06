@@ -11,7 +11,7 @@ const DOT = { good: "bg-[#34c759]", warn: "bg-[#ff9f0a]", bad: "bg-[#ff3b30]", u
 function StatusLine({ dark }) {
   const s = healthSummary(useHealth());
   return (
-    <div role="status" aria-live="polite" data-testid="health-status" data-tone={s.tone}
+    <div role="status" aria-live="polite" data-testid="health-status" data-tone={s.tone} title={s.text}
       className={`flex items-center gap-2 text-[12px] ${dark ? "text-white/70" : "text-ink-3"}`}>
       <span className={`h-2 w-2 rounded-full flex-shrink-0 ${DOT[s.tone]}`} aria-hidden />
       <span className="truncate">{s.text}</span>

@@ -50,6 +50,7 @@ This is the **only** file with client details. Change every value:
 | `quoteValidityDays` | e.g. `30`, or `0` for no default expiry | Default "Valid until" on new quotes (editable per quote) |
 | `depositDefault` | `{ type: "percent", value: 50 }`, `{ type: "fixed", value: 1500 }` or `null` | Default deposit on new quotes (editable per quote) |
 | `paymentInstructions` | The client's real bank/EFT details as one sentence | Accepted quote, invoice and PDF ("How to pay"). Plain text, no payment processing |
+| `paymentLink` | `"https://…"` (the client's own PayFast/Yoco/SnapScan page), or `""` | A Pay online button next to the bank details on the quote page and invoice, printed on the PDF. https only. No payment sync |
 | `quoteTerms` | One short sentence, or `""` | Quiet line under the totals on the quote page and PDF |
 | `showPoweredBy` | `true` / `false` | The small "Powered by DropStack" line on the customer's page |
 
@@ -134,6 +135,11 @@ valid-until dates, the item library and demo data say they need the update.
 - [ ] On your phone, open `https://<live address>/login`, log in, and check
       the logo and name. Open one quote link from WhatsApp and check it
       shows without a login.
+
+Health check (after deploy):
+
+- [ ] Open `https://<site>/api/health`. It should show `"ok": true`, `"database": true` and `"configComplete": true`. It only ever shows true/false, never keys or contact details.
+- [ ] The dashboard's status line (bottom of the sidebar, or under the content on a phone) agrees.
 
 ## 6. Send the client
 

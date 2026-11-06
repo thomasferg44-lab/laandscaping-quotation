@@ -1,6 +1,6 @@
 # REPORT: Quote & Invoice compete pass (reskin + functional upgrades)
 
-Branch `compete/quote-upgrades` (7 commits on `main` c7b3ff5). **Not pushed, not deployed, no SQL applied to any real database, no secrets touched.** The schema patch is a file for Ziggy's review.
+Branch `compete/quote-upgrades` (10 commits on `main` c7b3ff5), including Tom's two mid-build addenda (see the Addenda section). **Not pushed, not deployed, no SQL applied to any real database, no secrets touched.** The schema patch is a file for Ziggy's review.
 
 Format follows `dropstack-tools-DESIGN.md` §6: baseline → what changed → Gate 1 → Gate 2 → Gate 3 → review pack → Gate 5 → behaviour changes and what's left.
 
@@ -55,6 +55,12 @@ Baseline green, so the work proceeded.
 - `supabase/verify-compete-upgrades.sql` (new).
 - `verify-rls.sql`: grant whitelist updated for `accept_public_quote_v2`.
 
+**Addenda**
+- `netlify/functions/health.mjs`, `src/lib/health.js`, `src/lib/healthClient.js`, `src/hooks/useHealth.js`: health endpoint and the status line in `AppShell.jsx`.
+- `src/lib/payment.js`, `src/components/PaymentBlock.jsx`: the payment block, used in `PublicQuote.jsx`, `QuoteDetail.jsx` and `pdfExport.js`.
+- `src/lib/suggestions.js`: Quick add and as-you-type matches in `Builder.jsx` and `LineItemEditor.jsx`.
+- `netlify.toml`: the `/api/health` redirect. `companyConfig.js`: `paymentLink`. Tests in `src/lib/addendum.test.js`.
+
 **Tooling and docs**
 - `src/dev/mockBackend.js`: local test backend, dev-only.
 - `supabase/local-test/`: SQL harness. `tools/gates/`: the Gate 2–5 scripts.
@@ -63,7 +69,7 @@ Baseline green, so the work proceeded.
 
 ## Gate 1: unit and regression
 
-**197/197 pass** across 9 files, up from 104. All 104 original tests still pass unchanged.
+**213/213 pass** across 10 files, up from 104. All 104 original tests still pass unchanged.
 
 New tests cover:
 - Tier totals, including blank tier names, the 3-tier cap and the cheapest-option "from" price.
@@ -74,6 +80,7 @@ New tests cover:
 - Demo removal: always filtered by `is_demo` and `owner_id`, never unfiltered.
 - Acceptance snapshot, typed-name validation, timeline states.
 - Builder payload: new columns omitted on an unpatched DB, inline error copy, tier add/remove.
+- Addenda: health check (probe, booleans only, the Netlify handler end to end), payment block (https-only link, wording per stage), suggestions (ranking, determinism, filtering, one-tap fill, the pass-2 stub).
 - PDF content: tiers, add-ons, deposit, signature, payment instructions, no placeholder number.
 - The v2 accept call and its fallback, the fetch RPC client, the early-fetch handoff, brand contrast, library entries.
 
@@ -85,7 +92,7 @@ Separately on PGlite (SQL, not counted above):
 
 ## Gate 2: end-to-end flows (390px phone and 1280px desktop, test data only)
 
-The brief's quote flow plus every new feature: 46 steps, **PASS at both sizes**.
+The brief's quote flow plus every new feature and the addenda: 55 steps, **PASS at both sizes**.
 
 | Step | 390px | Desktop |
 |---|---|---|
@@ -122,6 +129,10 @@ The brief's quote flow plus every new feature: 46 steps, **PASS at both sizes**.
 | B7 Library: inline validation, create, edit, delete via a sheet | PASS | PASS |
 | B8 One-tap insert from the library; save a builder line to the library | PASS | PASS |
 | B8 Tiered builder: the "From" total; saved with 2 tiers | PASS | PASS |
+| D1 Health status line in the shell (the base config's placeholder WhatsApp number is flagged); shows "Database not reachable" when the probe fails | PASS | PASS |
+| D2 Payment block on the open quote page, the invoice view and the owner's invoice detail; no Pay online button when `paymentLink` is empty | PASS | PASS |
+| D3 Quick add ranks most-used first; one tap fills the empty row with the library rate | PASS | PASS |
+| D3 As-you-type match fills mode, rate and detail in one tap; added items drop out of Quick add | PASS | PASS |
 | B9 **Dashboard updates live, without a reload, when the customer accepts** | PASS | PASS |
 | B10 Remove demo data deletes exactly the seeded rows; another owner's demo row and the real rows are kept | PASS | PASS |
 | C1 Slow load (>2s): skeleton, then a calm "still loading" line | PASS | PASS |
@@ -154,15 +165,17 @@ Run these after the patch is applied (Gate 6), with test data only:
 13. Load demo data, then Remove demo data. Only this login's `is_demo` rows go.
 14. Photo upload on a line item (Storage). The code is unchanged, but it hasn't been exercised this pass.
 15. Gate 5 on the deployed URL: the real Supabase round trip replaces my emulation.
+16. `GET /api/health` on the deploy (Netlify Function, never run here). Expect `ok: true`, `database: true`, and booleans only, with no key, URL, number or address. Check that the dashboard status line agrees.
 
 ## Gate 3: config swap (second demo config)
 
-`configs/demo-config-2.js` ("Example Coastal Landscapes": no logo, brand #1F4E79, number 27000000099, fixed R 2 000 deposit, 14-day validity, Powered-by line off) was copied over `companyConfig.js` in a scratch copy and built. Result: **9/9 PASS at both sizes.**
+`configs/demo-config-2.js` ("Example Coastal Landscapes": no logo, brand #1F4E79, number 27000000099, fixed R 2 000 deposit, 14-day validity, Powered-by line off) was copied over `companyConfig.js` in a scratch copy and built. Result: **10/10 PASS at both sizes.** The second config also sets `paymentLink`.
 
 - Tab title, the monogram "EC" and the brand colour on the primary button all switch.
 - The builder defaults switch, and the WhatsApp prefill uses the new name.
 - The customer page shows the new name, the R 2 000,00 deposit, the new terms and email, and no Powered-by line.
-- The consent wording names the new business. Payment instructions come from the new config.
+- The consent wording names the new business. Payment instructions come from the new config, and the Pay online button links to its `paymentLink`. The PDF prints the link.
+- The health line reads "All systems normal" (this config's number and payment details are set).
 - The PDF has the new name, "WhatsApp +27000000099" and the monogram.
 - The failure fallback links to wa.me/27000000099.
 - A leftover scan (page text, prefills, PDF) found **zero** traces of the base config ("Placeholder", its email, the `27XXXXXXXXX` number).
@@ -171,12 +184,13 @@ Run these after the patch is applied (Gate 6), with test data only:
 
 **https://claude.ai/artifact/KW3Xr6z5nhj9BEzfAR1SXN** (private to Tom's account; share it from the page's Share menu for Ziggy). Local copy: `review-pack/index.html` (gitignored, 15 MB).
 
-It has 43 screens at 390px and desktop, with before and after wherever a before exists:
+It has 47 screens at 390px and desktop, with before and after wherever a before exists:
 - **Builder**: empty, filled, error, tiers.
 - **Dashboard**: empty, populated, demo.
 - **Customer page**: single option, tiered, optional add-ons, deposit, expired, accepted (success), accept sheet with errors, slow, failed, offline, bad link, invoice.
 - **Quote detail**: with timeline; accepted, expired, convert sheet.
 - **Library, settings and login.**
+- **Addenda**: health line, Quick add, as-you-type match, payment block.
 - **Pre-patch states.**
 - **The second config.**
 - **PDF page 1**: before and after, plus the second config.
@@ -187,14 +201,14 @@ Local production build, served gzipped like a CDN, with the cache cleared before
 
 | Screen | Performance (3 runs) | LCP (simulated slow 4G) | Accessibility | Best practices | Weight | LCP element |
 |---|---|---|---|---|---|---|
-| Customer quote page | **99** / 100 / 99 | 1.54–1.71 s | 100 | 100 | 87 KB | content text (the accept note under the document) |
-| Customer page, tiered | **99** / 99 / 100 | 1.54–1.74 s | 100 | 100 | 87 KB | content |
-| Dashboard | **99** / 99 / 99 | 1.86 s | 100 | 100 | 100 KB | the hero stat figure |
+| Customer quote page | **99** / 100 / 100 | 1.54–1.70 s | 100 | 100 | 87 KB | content text (the payment details line) |
+| Customer page, tiered | **99** / 99 / 99 | 1.54–1.70 s | 100 | 100 | 87 KB | content |
+| Dashboard | **99** / 99 / 99 | 1.87 s | 100 | 100 | 102 KB | the hero stat figure |
 
 **Fast-3G LCP check** (§2A): DevTools throttling at 1.6 Mbps down, 750 Kbps up, 562.5 ms RTT, 4x CPU, on the customer page.
 - The test backend's data call isn't network traffic, so I emulated the Supabase round trip with a fixed delay:
-  - Pessimistic, cold DNS+TLS+request (1700 ms): LCP 2.43 / 2.44 / **2.49 s**.
-  - Connection already warmed by the preconnect (700 ms): **1.84–1.87 s**.
+  - Pessimistic, cold DNS+TLS+request (1700 ms): LCP 2.43 / 2.47 / **2.49 s**.
+  - Connection already warmed by the preconnect (700 ms): **1.85–1.86 s**.
 - Both are under 2.5 s, the pessimistic one only just. **Re-measure on the live URL in Gate 6.**
 
 Getting there took three changes, all real code:
@@ -202,12 +216,41 @@ Getting there took three changes, all real code:
 2. A Supabase preconnect in `index.html`.
 3. A small inline script in `index.html` starts the quote request while the HTML is still parsing, and the page picks it up. Before these changes, throttled LCP was 3.4 s.
 
-Accessibility spot checks on dashboard, builder, detail, library, settings and the customer page, at both sizes:
+These numbers were re-measured after the addenda.
+
+Accessibility spot checks on dashboard, builder, detail, library, settings and the customer page, at both sizes (also re-run after the addenda):
 - Every input has a label.
 - Every tap target is at least 44px. Segmented controls, filter chips and the share link were raised from 40px to fix this.
 - The focus ring is visible on every tabbed element.
 - Status-pill contrast: draft 8.16, sent/viewed 5.09, accepted/paid 4.83, invoiced 5.12, expired 5.29, demo 5.07 (all at least 4.5:1).
 - No emojis anywhere in UI, copy or toasts (swept); no Netlify badge; no exclamation marks in toasts.
+
+## Addenda (folded in mid-build, scope kept to exactly these)
+
+**1. Health endpoint and status line**
+- `GET /api/health` is a Netlify Function (`netlify/functions/health.mjs`). The redirect is in `netlify.toml`, ahead of the SPA fallback.
+- It returns `ok`, `healthy`, `database` (boolean), `databaseLatencyMs`, `configComplete` and `config.*`, all booleans: business name, logo, a valid WhatsApp number, a real contact email, payment instructions, a payment link, Supabase URL and anon key. It never returns a value. A test asserts that no key, URL, number, email or name appears in the response.
+- The database probe is the public read function `get_public_quote` called with an all-zero token: a SELECT that matches nothing and writes nothing.
+- It reads `SUPABASE_URL`/`SUPABASE_ANON_KEY`, falling back to the existing `VITE_` variables. No new secrets.
+- Logic lives in `src/lib/health.js`, shared with the client. The shell shows a status line ("All systems normal" / "Connected · add WhatsApp number" / "Database not reachable" / "Setup incomplete"). It sits at the bottom of the sidebar on desktop and under the content on phones, checking at start and every 60 s while visible.
+- Plain `vite dev` has no functions, so the line reads "Status check unavailable" there. `netlify dev` serves it.
+
+**2. Payment link**
+- New `companyConfig.paymentLink` (https only; `""` hides it; empty in the base config so no fake link ships).
+- One payment block (`src/lib/payment.js`, `PaymentBlock.jsx`) holds the bank details, the reference, and a Pay online button when the link is set.
+- It appears on the customer quote page at every stage except paid and expired. On an open quote it reads "Payment details" with "Pay once you've accepted this quote", and "How to pay" once accepted or invoiced.
+- It also appears on the invoice view, the owner's invoice detail, and the PDF, where the link is clickable. No payment processing or status sync.
+
+**3. Smart line-item suggestions** (`src/lib/suggestions.js`)
+- Sources: the item library and the line items of past quotes the user can see, including every tier and frozen acceptance.
+- Ranking:
+  - Score is the number of quotes an item appears in, counted once per quote, plus 0.5 if it's in the library.
+  - Ties break on most recent use, then name.
+  - Price, mode and detail come from the library entry when one exists, otherwise the most recent use.
+- Items already on the quote are left out, and so is the quote being edited.
+- The builder shows a **Quick add** chip row (top 8, one tap; it fills the empty starter row instead of adding a second card) and **as-you-type matches** under each description (top 3 once 2+ characters are typed; one tap fills mode, rate and detail and keeps the quantity).
+- **Deterministic only: no network calls, no AI.**
+- **Pass-2 stub point:** `buildSuggestions({ ..., extra })` already accepts and ranks extra candidates (`{ name, detail, mode, rate, source: "draft" }`). Generative drafting from voice notes or photos would be a separate module feeding `extra`; real library and history data always win on a name clash. Nothing produces `extra` in this pass, pending Tom's decision. This is documented at the top of `suggestions.js`.
 
 ## Schema patch summary (for Ziggy)
 
@@ -258,12 +301,14 @@ Everything is additive and runs in one transaction.
     - Landscaper previews still don't count as a view: the page checks for the stored session key.
 14. **The browser tab title** is now "<businessName> quotes"; v1 was a fixed "Quotes".
 15. **New WhatsApp follow-up template** (manual tap only), on dashboard rows and the detail screen for sent or viewed quotes that aren't expired. **The v1 send prefill is unchanged.**
-16. **Demo data** is marked by `is_demo`, a Demo pill, a "demo quote" note on the customer page and the PDF, and test contact details (+2700000000x, @example.com). Customer names are plain invented first names with an initial.
+16. **New (addenda):** the shell's health status line; the payment block (bank details and link) now shows on the open quote too, not only after acceptance; a Quick add row plus as-you-type matches in the builder; adding from the library or Quick add fills the empty starter row instead of appending.
+17. **Demo data** is marked by `is_demo`, a Demo pill, a "demo quote" note on the customer page and the PDF, and test contact details (+2700000000x, @example.com). Customer names are plain invented first names with an initial.
 
 ## Flagged / not done / for Tom or Ziggy
 
 - **Nothing was applied, pushed or deployed.** CLAUDE.md expects a PR for every change; the brief said no push, so there's a local branch and no PR yet.
-- **Real Supabase isn't exercised.** PostgREST resolving the new function, Realtime and Storage are all in the BLOCKED-BY-PATCH list.
+- **Real Supabase isn't exercised.** PostgREST resolving the new function, Realtime and Storage are all in the BLOCKED-BY-PATCH list, as is `/api/health` on Netlify.
+- **Suggestions read every quote the login can see.** On the shared DB a staff login would get suggestions from other owners' quotes, which is the same allowlist caveat as below.
 - **The Fast-3G pass is emulated and marginal** (2.49 s worst case). Measure on the live URL.
 - **Staff logins see every owner's quotes on the shared `dropstack-dev` DB.** That is the pre-existing allowlist model: `is_business_user()` is table-wide. Demo removal is scoped by owner for that reason. It's worth a look before more businesses share that DB.
 - **The expiry time zone is fixed** to Africa/Johannesburg in SQL and in config. Change both together for a client elsewhere.
@@ -286,7 +331,7 @@ On the quote-to-accept moment, this now holds its own. A landscaper can build Go
 
 Beyond that moment it still loses, and mostly not on polish:
 
-- **Money.** There is no online payment, so the deposit is a sentence of bank details. Jobber's deposit is a card button that gets paid while the customer is still excited.
+- **Money.** There is no integrated online payment: the deposit is bank details plus, at best, a link out to the client's own payment page, and nothing marks the quote paid when the money lands. Jobber's deposit is a card button that gets paid, and reconciled, while the customer is still excited.
 - **VAT.** There is no VAT or tax handling at all, which matters for any VAT-registered South African client.
 - **Accounting and job costing.** No Xero/QuickBooks sync, and no costs or margins on line items, so the owner can't see whether a tier is profitable.
 - **Signature evidence.** A typed name with a timestamp is weaker than Jobber's signature capture and audit trail if a customer later disputes the work.

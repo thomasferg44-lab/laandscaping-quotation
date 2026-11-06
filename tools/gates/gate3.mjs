@@ -57,12 +57,16 @@ for (const [pname, profile] of [["phone", PHONE], ["desktop", DESKTOP]]) {
   await R.check("consent wording names the new business", async () => { if (!clean(await cp.getByRole("dialog").textContent()).includes("I accept this quote from Example Coastal Landscapes")) throw new Error("consent"); });
   await cp.getByRole("button", { name: /^Accept for/ }).click(); await cp.getByText("Quote accepted").first().waitFor();
   await shot(cp, "c2-public-accepted");
-  await R.check("payment instructions from the new config", async () => { if (!clean(await cp.textContent("body")).includes("EFT to Example Coastal Landscapes, Test Bank")) throw new Error("pay"); });
+  await R.check("payment block: new bank details + Pay online link from config", async () => {
+    if (!clean(await cp.textContent("body")).includes("EFT to Example Coastal Landscapes, Test Bank")) throw new Error("pay");
+    const href = await cp.getByRole("link", { name: "Pay online" }).getAttribute("href");
+    if (href !== "https://pay.example-coastal.invalid/quotes") throw new Error(href);
+  });
   const [dl] = await Promise.all([cp.waitForEvent("download"), cp.getByRole("button", { name: /Download your copy/ }).click()]);
   await dl.saveAs(`${OUT}/c2-quote-${pname}.pdf`);
   await R.check("PDF: new name, WhatsApp +27000000099, monogram, no leftovers", async () => {
     const raw = clean(readFileSync(`${OUT}/c2-quote-${pname}.pdf`, "latin1"));
-    for (const s of ["Example Coastal Landscapes", "WhatsApp +27000000099", "EC", "R 3 400,00", "R 2 000,00"]) if (!raw.includes(s)) throw new Error(`missing ${s}`);
+    for (const s of ["Example Coastal Landscapes", "WhatsApp +27000000099", "EC", "R 3 400,00", "R 2 000,00", "Pay online:", "https://pay.example-coastal.invalid/quotes"]) if (!raw.includes(s)) throw new Error(`missing ${s}`);
     if (/Placeholder|placeholder-garden/.test(raw)) throw new Error("leftover");
   });
   await cp.evaluate(() => localStorage.setItem("dropstack-mock-fail", "rpc")); await cp.goto(`${BASE}/quote/${id}`);
@@ -72,6 +76,10 @@ for (const [pname, profile] of [["phone", PHONE], ["desktop", DESKTOP]]) {
     if (!href.startsWith("https://wa.me/27000000099")) throw new Error(href);
   });
   await shot(cp, "c2-public-error");
+  await p.goto(BASE + "/");
+  await R.check("health line: config complete for this business (number + payment set)", async () => {
+    await p.waitForFunction(() => [...document.querySelectorAll("[data-testid=health-status]")].some((e) => e.dataset.tone === "good"), null, { timeout: 4000 });
+  });
   results[pname] = R.rows; await c.close(); await ctx.close();
 }
 writeFileSync(`${OUT}/gate3-results.json`, JSON.stringify(results, null, 2));

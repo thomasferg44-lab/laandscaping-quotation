@@ -7,6 +7,7 @@ import {
 } from "./quoteMath.js";
 import { hexToRgb, initials } from "./brand.js";
 import { normaliseWhatsAppNumber } from "./shareLinks.js";
+import { paymentBlock } from "./payment.js";
 
 // Client-side PDF of a quote/invoice. Mirrors the public page: header,
 // customer + dates, options/items with thumbnails, totals with the deposit
@@ -196,8 +197,19 @@ export async function buildQuotePdf(quote) {
   if (accepted && quote.accepted_name) {
     para("Accepted by", `${quote.accepted_name}, on ${dateOf(quote.accepted_at)} at ${timeOf(quote.accepted_at)}. The customer typed their full name and ticked the consent box online.`);
   }
-  const showPay = companyConfig.paymentInstructions && (isInvoiceStatus(quote.status) || (accepted && quoteDeposit(quote)) || (accepted && quote.accepted_selection?.deposit_type));
-  if (showPay && quote.status !== "paid") para("How to pay", `${companyConfig.paymentInstructions} Reference: ${docRef(quote)}.`);
+  // Payment block: same content as the quote page (bank details + link).
+  const pay = expired ? null : paymentBlock(companyConfig, quote, docRef(quote));
+  if (pay) {
+    const body = [pay.note, pay.instructions, `Reference: ${pay.reference}.`].filter(Boolean).join(" ");
+    para(pay.title, body);
+    if (pay.link) {
+      ensure(8);
+      font("normal", 9.5, INK2); text("Pay online:", M, y);
+      font("normal", 9.5, brand);
+      doc.textWithLink(pay.link, M + doc.getTextWidth("Pay online: "), y, { url: pay.link });
+      y += 8;
+    }
+  }
 
   const note = isInvoiceStatus(quote.status)
     ? (quote.status === "paid"

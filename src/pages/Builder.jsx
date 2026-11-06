@@ -6,6 +6,7 @@ import { MODE_KEYS, MODES, lineItemFromLibrary, makeMoneyFormatter, newLineItem 
 import { addTier, buildQuotePayload, emptyForm, formFromRow, formOptionalCents, formTotalCents, removeTier } from "../lib/quotePayload";
 import { getQuote, listLibrary, needsPatch, saveLibraryItem, saveQuote } from "../lib/quotesApi";
 import { libraryEntryFromLineItem, toLibraryRow } from "../lib/libraryForm";
+import { buildSuggestions, lineItemFromSuggestion } from "../lib/suggestions";
 import { depositSplit, MAX_TIERS, isAcceptedStatus } from "../lib/quoteMath";
 import { docLabel, docRef, isInvoiceStatus } from "../lib/quoteDoc";
 import { makeCentsFormatter } from "../lib/money";
@@ -100,6 +101,9 @@ export default function Builder() {
     }
   }, [library]);
 
+  // Library is needed up front for suggestions (it is also the picker's data).
+  useEffect(() => { ensureLibrary(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- editing ------------------------------------------------------------
   const change = (fn) => { setDirty(true); setSaveError(null); setForm(fn); };
   const setField = (k, v) => change((f) => ({ ...f, [k]: v }));
@@ -108,7 +112,17 @@ export default function Builder() {
     if (!f.tiered) return { ...f, line_items: fn(f.line_items) };
     return { ...f, tiers: f.tiers.map((t, i) => (i === activeTier ? { ...t, line_items: fn(t.line_items) } : t)) };
   });
-  const addItem = (item) => setItems((list) => [...list, item]);
+  // A fresh form starts with one empty row: a quick-add fills that row
+  // instead of leaving a blank card above the new item.
+  const isBlankRow = (it) => !it.description?.trim() && !it.rate && !it.photo_url;
+  const addItem = (item) => setItems((list) => (list.length === 1 && isBlankRow(list[0]) ? [item] : [...list, item]));
+
+  // Deterministic suggestions: this business's library + past quotes.
+  const suggestionSources = { library: library ?? [], quotes: store?.quotes ?? [], excludeQuoteId: id ?? null };
+  const quickAdd = buildSuggestions({ ...suggestionSources, currentItems: items, limit: 8 });
+  const suggestFor = (itemId) => (query) =>
+    buildSuggestions({ ...suggestionSources, currentItems: items.filter((x) => x.id !== itemId), query, limit: 3 })
+      .filter((s) => s.key !== query.trim().toLowerCase());
 
   function onAddTier() {
     const next = addTier(form);
@@ -291,11 +305,29 @@ export default function Builder() {
                   const rest = list.filter((x) => x.id !== it.id);
                   return rest.length ? rest : [newLineItem("area")];
                 })}
-                onSaveToLibrary={openSaveToLibrary} />
+                onSaveToLibrary={openSaveToLibrary} suggest={suggestFor(it.id)} />
             ))}
             {errors.items && <p className="field-error" data-error="true"><Icon name="alert" size={15} className="mt-[1px]" />{errors.items}</p>}
 
             <div className="card p-4 space-y-3">
+              {quickAdd.length > 0 && (
+                <div>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <span className="text-[13px] font-semibold">Quick add</span>
+                    <span className="text-[12px] text-ink-3">Your most-used items</span>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1" aria-label="Suggested items">
+                    {quickAdd.map((s) => (
+                      <button key={s.key} type="button" data-testid="quick-add"
+                        onClick={() => { addItem(lineItemFromSuggestion(s)); toast(`Added ${s.name}`); }}
+                        className="flex-shrink-0 max-w-[15rem] text-left rounded-[14px] bg-fill hover:bg-fill-2 active:scale-[0.98] transition-transform px-3.5 py-2 min-h-[56px]">
+                        <span className="flex items-center gap-1.5 text-[14px] font-medium"><Icon name="plus" size={15} className="flex-shrink-0" /><span className="truncate">{s.name}</span></span>
+                        <span className="block text-[12px] text-ink-3 tabular truncate pl-[21px]">{formatMoney(s.rate)}{MODES[s.mode].unit ? ` per ${MODES[s.mode].unit.replace(/s$/, "")}` : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <button type="button" onClick={() => { ensureLibrary(); setPickerOpen(true); }} className="btn-secondary w-full py-3">
                 <Icon name="book" size={18} /> Add from library
               </button>

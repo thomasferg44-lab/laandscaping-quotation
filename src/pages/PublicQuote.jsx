@@ -13,6 +13,7 @@ import {
 } from "../lib/quoteMath";
 import { normaliseWhatsAppNumber } from "../lib/shareLinks";
 import LineItemRow from "../components/LineItemRow.jsx";
+import PaymentBlock from "../components/PaymentBlock.jsx";
 import BrandMark from "../components/ui/BrandMark.jsx";
 import Icon from "../components/ui/Icon.jsx";
 import Skeleton from "../components/ui/Skeleton.jsx";
@@ -264,14 +265,11 @@ export default function PublicQuote() {
                 : <div className="text-[15px] font-medium">{quote.customer_name}</div>}
               <div className="text-[13px] text-ink-3">{quote.accepted_at ? dateTime(quote.accepted_at) : ""}{quote.accepted_name ? " · typed name and consent recorded" : ""}</div>
             </div>
-            {companyConfig.paymentInstructions && (dep || isInvoiceStatus(quote.status)) && (
-              <div>
-                <h2 className="text-[15px] font-semibold">How to pay</h2>
-                <p className="text-[14px] text-ink-2 mt-1">{companyConfig.paymentInstructions}</p>
-                <p className="text-[13px] text-ink-3 mt-1">Reference: {docRef(quote)}</p>
-              </div>
-            )}
           </section>
+        )}
+
+        {!expired && (
+          <div className="px-5 sm:px-8 pb-6"><PaymentBlock quote={quote} reference={docRef(quote)} /></div>
         )}
 
         {companyConfig.quoteTerms && (

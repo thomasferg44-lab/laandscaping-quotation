@@ -152,7 +152,7 @@ describe("PDF: compete-pass content", () => {
     const { snapshot } = buildAcceptanceSnapshot({ ...base, status: "sent" }, { tierId: "b" });
     const q = { ...base, accepted_selection: snapshot, accepted_name: "Test Customer", accepted_at: "2026-10-02T09:30:00Z", total: snapshot.total, subtotal: snapshot.total };
     const raw = (await buildQuotePdf(q)).doc.output();
-    for (const t of ["Option chosen: Best", "Accepted by", "typed their full name", "R 7 901,52", "Deposit due now", "R 1 000,00", "R 6 901,52", "How to pay"]) expect(raw).toContain(t);
+    for (const t of ["Option chosen: Best", "Accepted by", "typed their full name", "R 7 901,52", "Deposit due now", "R 1 000,00", "R 6 901,52", "How to pay", "Reference: Q-3F2A9C"]) expect(raw).toContain(t);
   });
 
   it("never prints the placeholder WhatsApp number", async () => {

@@ -2,6 +2,22 @@ import { NavLink, Link } from "react-router-dom";
 import { companyConfig } from "../../companyConfig.js";
 import BrandMark from "./ui/BrandMark.jsx";
 import Icon from "./ui/Icon.jsx";
+import useHealth from "../hooks/useHealth";
+import { healthSummary } from "../lib/health";
+
+const DOT = { good: "bg-[#34c759]", warn: "bg-[#ff9f0a]", bad: "bg-[#ff3b30]", unknown: "bg-ink-4" };
+
+// Small status line driven by /api/health (database reachable, config present).
+function StatusLine({ dark }) {
+  const s = healthSummary(useHealth());
+  return (
+    <div role="status" aria-live="polite" data-testid="health-status" data-tone={s.tone}
+      className={`flex items-center gap-2 text-[12px] ${dark ? "text-white/70" : "text-ink-3"}`}>
+      <span className={`h-2 w-2 rounded-full flex-shrink-0 ${DOT[s.tone]}`} aria-hidden />
+      <span className="truncate">{s.text}</span>
+    </div>
+  );
+}
 
 // The console shell, adapted (spec §1): dark charcoal glass sidebar with the
 // aura-tinted pill on the active item and live count badges on desktop; a
@@ -38,7 +54,10 @@ export default function AppShell({ children, title, back, actions, badges = {}, 
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto px-5 py-5 text-[12px] text-white/60">Powered by DropStack</div>
+        <div className="mt-auto px-5 py-5 space-y-2">
+          <StatusLine dark />
+          <div className="text-[12px] text-white/60">Powered by DropStack</div>
+        </div>
       </aside>
 
       {/* Header band: the one place the aura washes the app */}
@@ -58,7 +77,10 @@ export default function AppShell({ children, title, back, actions, badges = {}, 
         </div>
       </header>
 
-      <main className={`max-w-3xl mx-auto px-4 sm:px-6 pt-5 ${hideTabs ? "pb-40" : "pb-32 lg:pb-12"}`}>{children}</main>
+      <main className={`max-w-3xl mx-auto px-4 sm:px-6 pt-5 ${hideTabs ? "pb-40" : "pb-32 lg:pb-12"}`}>
+        {children}
+        {!hideTabs && <div className="lg:hidden mt-8 flex justify-center"><StatusLine /></div>}
+      </main>
 
       {/* Phone tab bar */}
       {!hideTabs && (

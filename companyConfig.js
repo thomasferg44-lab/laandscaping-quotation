@@ -32,6 +32,11 @@ export const companyConfig = {
   // values below are deliberately fake.
   paymentInstructions:
     "EFT to Placeholder Garden Services, Example Bank, account 0000000000, branch 000000. Use your quote number as the reference.",
+  // Optional online payment page (the client's own PayFast/Yoco/SnapScan
+  // link or similar), shown as a "Pay online" button next to the bank
+  // details and printed on the PDF. https only; "" hides it. No payment
+  // processing or status sync in this tool.
+  paymentLink: "",
   // Quiet terms line under the totals on the quote page and PDF. "" hides it.
   quoteTerms: "Prices include labour and materials listed. Work is scheduled once the quote is accepted.",
   // The only attribution allowed on customer pages (design spec §2A).

@@ -19,6 +19,7 @@ import ShareButtons from "../components/ShareButtons.jsx";
 import Timeline from "../components/Timeline.jsx";
 import LineItemRow from "../components/LineItemRow.jsx";
 import ConfirmSheet from "../components/ConfirmSheet.jsx";
+import PaymentBlock from "../components/PaymentBlock.jsx";
 import Icon from "../components/ui/Icon.jsx";
 import Skeleton from "../components/ui/Skeleton.jsx";
 import { useToast } from "../components/ui/Toast.jsx";
@@ -177,6 +178,13 @@ export default function QuoteDetail() {
             ))
           )}
         </section>
+
+        {isInvoiceStatus(quote.status) && (
+          <section className="card p-5">
+            <PaymentBlock quote={quote} reference={docRef(quote)} compact />
+            <p className="mt-3 text-[13px] text-ink-3">This is what the customer sees on their invoice link and PDF.</p>
+          </section>
+        )}
 
         {(quote.status === "draft" || quote.status === "sent" || quote.status === "viewed") && status !== "expired" && (
           <ShareButtons quote={quote} onStatusChange={(row) => { setFetched((f) => ({ ...f, ...row })); store?.upsertLocal(row); }} />

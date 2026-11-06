@@ -14,6 +14,7 @@ export const companyConfig = {
   quoteValidityDays: 14,
   depositDefault: { type: "fixed", value: 2000 },
   paymentInstructions: "EFT to Example Coastal Landscapes, Test Bank, account 1111111111. Reference: your quote number.",
+  paymentLink: "https://pay.example-coastal.invalid/quotes",
   quoteTerms: "Quoted rates valid for 14 days. Plant availability confirmed on acceptance.",
   showPoweredBy: false,
 };

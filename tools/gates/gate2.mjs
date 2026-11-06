@@ -321,13 +321,13 @@ for (const [pname, profile] of [["phone", PHONE], ["desktop", DESKTOP]]) {
   await page.getByLabel("WhatsApp number").fill("+27000000000");
   await page.getByRole("button", { name: "Add from library" }).click();
   await page.getByRole("dialog").getByRole("button", { name: /Instant lawn \(Kikuyu\)/ }).click();
-  await R.check("B8 one-tap insert from library (name, detail, rate)", async () => {
-    const it = item(page, 1);
+  await R.check("B8 one-tap insert from library (name, detail, rate) fills the empty starter row", async () => {
+    if ((await page.getByTestId("line-item").count()) !== 1) throw new Error("blank row kept");
+    const it = item(page, 0);
     if ((await it.getByLabel("Description").inputValue()) !== "Instant lawn (Kikuyu)") throw new Error("desc");
     if ((await it.getByLabel("Rate per m²").inputValue()) !== "85") throw new Error("rate");
   });
-  await item(page, 1).getByLabel("Area (m²)", { exact: true }).fill("30");
-  await item(page, 0).getByRole("button", { name: "Remove" }).click();
+  await item(page, 0).getByLabel("Area (m²)", { exact: true }).fill("30");
   await item(page, 0).getByRole("button", { name: "Save to library" }).click();
   await page.getByRole("dialog").getByLabel("Name").fill("Instant lawn, premium (test)");
   await page.getByRole("dialog").getByRole("button", { name: "Save item" }).click();
@@ -343,6 +343,64 @@ for (const [pname, profile] of [["phone", PHONE], ["desktop", DESKTOP]]) {
   await page.getByRole("button", { name: "Save draft" }).click();
   await page.waitForURL(/\/builder\/[0-9a-f-]{36}$/);
   await R.check("B8 tiered quote saved with 2 tiers", async () => { const id2 = page.url().split("/").pop(); const q = (await db(page)).quotes.find((x) => x.id === id2); if (q.tiers?.length !== 2 || q.total !== 2550) throw new Error(JSON.stringify(q.tiers?.length)); });
+
+  // ---------------- Addenda: health line, payment block, suggestions -------
+  await page.goto(BASE + "/");
+  await R.check("D1 health status line in the shell (base config: WhatsApp placeholder flagged)", async () => {
+    const s = page.getByTestId("health-status").filter({ visible: true }).first();
+    await s.waitFor({ timeout: 4000 });
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-testid=health-status]")].some((e) => e.dataset.tone !== "unknown"));
+    const t = clean(await page.getByTestId("health-status").filter({ visible: true }).first().textContent());
+    if (t !== "Connected · add WhatsApp number") throw new Error(t);
+  });
+  await shot(page, "health-line", pname);
+  await page.evaluate(() => localStorage.setItem("dropstack-mock-fail", "db"));
+  await page.reload();
+  await R.check("D1 health line shows 'Database not reachable' when the probe fails", async () => {
+    await page.getByTestId("health-status").filter({ visible: true }).first().getByText("Database not reachable").waitFor({ timeout: 4000 });
+  });
+  await page.evaluate(() => localStorage.removeItem("dropstack-mock-fail"));
+  ({ c: cctx, p: cp } = await customer(profile, page, `/quote/${dq.id}`));
+  await cp.getByTestId("payment-block").waitFor();
+  await R.check("D2 payment block on the open quote page (details, reference; no link when paymentLink empty)", async () => {
+    const t = clean(await cp.getByTestId("payment-block").textContent());
+    for (const s of ["Payment details", "Pay once you've accepted", "EFT to Placeholder Garden Services", `Reference: Q-${dq.id.slice(0, 6).toUpperCase()}`]) if (!t.includes(s)) throw new Error(`missing ${s}`);
+    if (await cp.getByRole("link", { name: "Pay online" }).count()) throw new Error("link shown without paymentLink");
+  });
+  await shot(cp, "public-payment", pname);
+  await cp.goto(`${BASE}/quote/${id}`); // invoiced in flow A
+  await R.check("D2 payment block on the invoice view", async () => {
+    const t = clean(await cp.getByTestId("payment-block").textContent());
+    if (!t.includes("How to pay") || !t.includes(`INV-${id.slice(0, 6).toUpperCase()}`)) throw new Error(t);
+  });
+  await cctx.close();
+  await page.goto(`${BASE}/quotes/${id}`);
+  await R.check("D2 owner's invoice detail shows the same payment block", async () => { await page.getByTestId("payment-block").getByText("How to pay").waitFor({ timeout: 3000 }); });
+  await page.goto(BASE + "/builder");
+  await page.getByTestId("quick-add").first().waitFor();
+  await shot(page, "builder-suggestions", pname);
+  await R.check("D3 quick add ranks most-used first (library + past quotes)", async () => {
+    const first = clean(await page.getByTestId("quick-add").first().textContent());
+    if (!first.startsWith("Instant lawn (Kikuyu)")) throw new Error(first);
+  });
+  await page.getByTestId("quick-add").first().click();
+  await R.check("D3 one tap adds it (fills the empty row, library rate)", async () => {
+    if ((await page.getByTestId("line-item").count()) !== 1) throw new Error("rows");
+    if ((await item(page, 0).getByLabel("Description").inputValue()) !== "Instant lawn (Kikuyu)") throw new Error("desc");
+    if ((await item(page, 0).getByLabel("Rate per m²").inputValue()) !== "85") throw new Error("rate");
+  });
+  await page.getByRole("button", { name: "Per unit", exact: true }).click();
+  await item(page, 1).getByLabel("Description").fill("comp");
+  await R.check("D3 as-you-type match fills the line (mode + rate) in one tap", async () => {
+    await page.getByRole("list", { name: "Matching items" }).getByRole("button", { name: /Compost delivery/ }).click();
+    if ((await item(page, 1).getByLabel("Description").inputValue()) !== "Compost delivery") throw new Error("desc");
+    if ((await item(page, 1).getByLabel("Rate per load").inputValue()) !== "1250") throw new Error("rate/mode");
+  });
+  await shot(page, "builder-typeahead", pname);
+  await R.check("D3 already-added items drop out of quick add", async () => {
+    const chips = (await page.getByTestId("quick-add").allTextContents()).map(clean);
+    if (chips.some((c) => c.startsWith("Instant lawn (Kikuyu)") || c.startsWith("Compost delivery"))) throw new Error(chips.join(" | "));
+  });
 
   // realtime (same context, BroadcastChannel stands in for Supabase Realtime)
   await page.goto(BASE + "/");

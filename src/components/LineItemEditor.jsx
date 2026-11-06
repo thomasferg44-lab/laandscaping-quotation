@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MODES, MODE_KEYS, computeTotal, describeCalc, stepQty, validateLineItem } from "../lib/lineItems";
+import { applySuggestion } from "../lib/suggestions";
 import PhotoUpload from "./PhotoUpload.jsx";
 import Icon from "./ui/Icon.jsx";
 import { NumberField, Segmented, StepperField, Switch, TextField } from "./ui/Field.jsx";
@@ -7,10 +8,13 @@ import { NumberField, Segmented, StepperField, Switch, TextField } from "./ui/Fi
 // Edits one line item. The mode picker is a calculator UI: whichever mode is
 // chosen, the result is still { description, qty, rate, total }.
 // Errors show after the field is left or after a save attempt (spec §2).
-export default function LineItemEditor({ item, index, onChange, onRemove, quoteId, formatMoney, submitted, onSaveToLibrary, canRemove = true }) {
+export default function LineItemEditor({ item, index, onChange, onRemove, quoteId, formatMoney, submitted, onSaveToLibrary, canRemove = true, suggest }) {
   const m = MODES[item.mode];
   const [touched, setTouched] = useState({});
   const [showDetail, setShowDetail] = useState(Boolean(item.detail));
+  const [typing, setTyping] = useState(false);
+  // As-you-type matches from the library and past quotes (deterministic).
+  const matches = typing && suggest && item.description.trim().length >= 2 ? suggest(item.description) : [];
   const errors = validateLineItem(item);
   const err = (f) => ((touched[f] || submitted) ? errors[f] : undefined);
   const touch = (f) => () => setTouched((t) => ({ ...t, [f]: true }));
@@ -37,8 +41,29 @@ export default function LineItemEditor({ item, index, onChange, onRemove, quoteI
       <Segmented label={`How item ${n} is priced`} scroll value={item.mode} onChange={setMode}
         options={MODE_KEYS.map((k) => ({ value: k, label: MODES[k].label }))} />
 
-      <TextField label="Description" value={item.description} onChange={(e) => set({ description: e.target.value })}
-        onBlur={touch("description")} error={err("description")} placeholder={placeholderFor(item.mode)} />
+      <div>
+        <TextField label="Description" value={item.description} autoComplete="off"
+          onChange={(e) => { set({ description: e.target.value }); setTyping(true); }}
+          onBlur={() => { touch("description")(); setTimeout(() => setTyping(false), 150); }}
+          error={err("description")} placeholder={placeholderFor(item.mode)} />
+        {matches.length > 0 && (
+          <ul className="mt-2 rounded-input border border-hairline bg-white shadow-card overflow-hidden divide-y divide-hairline" aria-label="Matching items">
+            {matches.map((s) => (
+              <li key={s.key}>
+                <button type="button" onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { onChange(applySuggestion(item, s)); setTyping(false); if (s.detail) setShowDetail(true); }}
+                  className="w-full flex items-center gap-3 px-3.5 min-h-[48px] text-left hover:bg-fill active:bg-fill-2">
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[15px] truncate">{s.name}</span>
+                    <span className="block text-[12px] text-ink-3 truncate">{MODES[s.mode].label} · {s.source === "history" ? `used in ${s.uses} quote${s.uses === 1 ? "" : "s"}` : s.uses ? `library · used ${s.uses}×` : "library"}</span>
+                  </span>
+                  <span className="text-[14px] font-semibold tabular whitespace-nowrap">{formatMoney(s.rate)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {showDetail ? (
         <TextField label="Detail" optional value={item.detail ?? ""} onChange={(e) => set({ detail: e.target.value })}

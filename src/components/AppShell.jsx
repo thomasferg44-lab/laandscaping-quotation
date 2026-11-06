@@ -38,7 +38,7 @@ export default function AppShell({ children, title, back, actions, badges = {}, 
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto px-5 py-5 text-[12px] text-white/40">Powered by DropStack</div>
+        <div className="mt-auto px-5 py-5 text-[12px] text-white/60">Powered by DropStack</div>
       </aside>
 
       {/* Header band: the one place the aura washes the app */}

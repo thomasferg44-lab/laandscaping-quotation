@@ -99,7 +99,7 @@ export function Segmented({ options, value, onChange, label, scroll = false }) {
         const active = o.value === value;
         return (
           <button key={o.value} type="button" role="radio" aria-checked={active} onClick={() => onChange(o.value)}
-            className={`flex-1 whitespace-nowrap rounded-[9px] px-3 min-h-[40px] text-[14px] font-medium transition-all duration-200 ease-out-soft
+            className={`flex-1 whitespace-nowrap rounded-[9px] px-3 min-h-[44px] text-[14px] font-medium transition-all duration-200 ease-out-soft
               ${active ? "bg-white text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-ink-2 hover:text-ink"}`}>
             {o.label}
           </button>

@@ -17,12 +17,7 @@ if (!MOCK && (!url || !anonKey)) {
 // The landscaper's client: carries their login session.
 export const supabase = MOCK ? createMockClient() : createClient(url ?? "", anonKey ?? "");
 
-// The hosted quote page's client: never carries a session, so every request
-// runs as anon, exactly like the customer's phone. Without this, a
-// landscaper previewing their own link would call the public functions as
-// `authenticated`, which has no EXECUTE on them.
-export const supabasePublic = MOCK
-  ? createMockClient({ anonOnly: true })
-  : createClient(url ?? "", anonKey ?? "", {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "sb-public-quote" },
-    });
+// The hosted quote page does NOT use this module: it has its own anon-only,
+// fetch-based client (publicClient.js), so supabase-js never loads on the
+// customer's phone and a landscaper previewing their link still calls the
+// public functions as anon.

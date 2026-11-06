@@ -84,9 +84,17 @@ const clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
 const nowIso = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 
-async function delay(kind) {
+// The inline early-fetch script (vite.config.js) starts the real request at
+// HTML parse; in test builds it only leaves a timestamp, and the first
+// get_public_quote counts its latency from there, as the real one would.
+let earlyUsed = false;
+async function delay(kind, fn) {
   const fail = ls.get("dropstack-mock-fail");
-  const ms = Number(ls.get("dropstack-mock-latency") ?? 120);
+  let ms = Number(ls.get("dropstack-mock-latency") ?? 120);
+  if (fn === "get_public_quote" && !earlyUsed && typeof window !== "undefined" && window.__qpStart != null) {
+    earlyUsed = true;
+    ms = Math.max(0, ms - (performance.now() - window.__qpStart));
+  }
   if (ms > 0) await new Promise((r) => setTimeout(r, ms));
   if (fail === "all" || (fail === "rpc" && kind === "rpc")) {
     throw Object.assign(new TypeError("Failed to fetch"), { name: "TypeError" });
@@ -252,7 +260,7 @@ function acceptAsCustomer(state, token, { fullName = null, consent = null, tierI
 }
 
 async function rpc(client, fn, args = {}) {
-  try { await delay(fn === "is_business_user" ? "table" : "rpc"); } catch (e) { return { data: null, error: { message: e.message } }; }
+  try { await delay(fn === "is_business_user" ? "table" : "rpc", fn); } catch (e) { return { data: null, error: { message: e.message } }; }
   const state = db();
   const uid = client.session()?.user?.id ?? null;
   if (fn === "is_business_user") {

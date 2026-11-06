@@ -131,8 +131,8 @@ export default function Dashboard() {
               const active = filter === f;
               return (
                 <button key={f} type="button" role="tab" aria-selected={active} onClick={() => setF(f)}
-                  className={`flex-shrink-0 rounded-full px-4 min-h-[40px] text-[14px] font-medium transition-colors duration-200 ${active ? "bg-ink text-white" : "bg-white text-ink-2 shadow-card hover:text-ink"}`}>
-                  {FILTER_LABEL[f]} <span className={`tabular ${active ? "text-white/70" : "text-ink-4"}`}>{counts[f] ?? 0}</span>
+                  className={`flex-shrink-0 rounded-full px-4 min-h-[44px] text-[14px] font-medium transition-colors duration-200 ${active ? "bg-ink text-white" : "bg-white text-ink-2 shadow-card hover:text-ink"}`}>
+                  {FILTER_LABEL[f]} <span className={`tabular ${active ? "text-white/70" : "text-ink-3"}`}>{counts[f] ?? 0}</span>
                 </button>
               );
             })}

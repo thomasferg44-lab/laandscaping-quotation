@@ -151,3 +151,17 @@ describe("acceptPublicQuoteV2", () => {
     expect(client.rpc).not.toHaveBeenCalled();
   });
 });
+
+import { vi as vi2 } from "vitest";
+vi2.mock("./publicClient", () => ({ publicClient: { rpc: vi2.fn(async () => ({ data: [{ id: "x", status: "sent" }], error: null })) } }));
+describe("public quote prefetch", () => {
+  it("starts only on a valid /quote/:token path and is taken once", async () => {
+    const { startPublicQuotePrefetch, takePrefetchedQuote } = await import("./publicPrefetch.js");
+    startPublicQuotePrefetch("/quote/nope");
+    expect(takePrefetchedQuote("nope")).toBeNull();
+    startPublicQuotePrefetch(`/quote/${TOKEN}`);
+    expect(takePrefetchedQuote("other")).toBeNull();
+    await expect(takePrefetchedQuote(TOKEN)).resolves.toEqual({ id: "x", status: "sent" });
+    expect(takePrefetchedQuote(TOKEN)).toBeNull(); // retries fetch fresh
+  });
+});

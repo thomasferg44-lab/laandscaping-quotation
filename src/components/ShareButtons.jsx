@@ -91,9 +91,10 @@ export default function ShareButtons({ quote, disabledReason, onStatusChange }) 
         </ul>
       )}
 
-      <div className="rounded-input bg-fill px-3.5 py-2.5 text-[13px] text-ink-2 break-all">
-        <a href={links.quoteUrl} target="_blank" rel="noreferrer" className="text-action">{links.quoteUrl}</a>
-      </div>
+      <a href={links.quoteUrl} target="_blank" rel="noreferrer"
+        className="flex items-center min-h-[44px] rounded-input bg-fill px-3.5 py-2.5 text-[13px] text-action break-all hover:bg-fill-2">
+        {links.quoteUrl}
+      </a>
       {error && <p className="field-error"><Icon name="alert" size={15} className="mt-[1px]" />{error}</p>}
     </section>
   );

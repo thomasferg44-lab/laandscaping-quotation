@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { supabase, supabasePublic } from "../lib/supabaseClient";
+import { hasOwnerSession, publicClient as supabasePublic } from "../lib/publicClient";
 import { companyConfig } from "../../companyConfig";
 import { makeMoneyFormatter } from "../lib/lineItems";
 import { makeCentsFormatter } from "../lib/money";
 import { acceptPublicQuoteV2, fetchPublicQuote, markPublicQuoteViewed } from "../lib/publicQuote";
+import { takePrefetchedQuote } from "../lib/publicPrefetch";
 import { docLabel, docRef, isInvoiceStatus } from "../lib/quoteDoc";
 import {
   acceptedDocument, baseCents, depositSplit, includedItems, isAcceptedStatus, isExpired, isOptional,
@@ -51,7 +52,7 @@ export default function PublicQuote() {
     const slowTimer = setTimeout(() => setSlow(true), 2000);
     let data = null;
     try {
-      data = await fetchPublicQuote(supabasePublic, id);
+      data = await (takePrefetchedQuote(id) ?? fetchPublicQuote(supabasePublic, id));
     } catch {
       clearTimeout(slowTimer);
       setState(typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "error");
@@ -65,8 +66,7 @@ export default function PublicQuote() {
 
     if (data.status === "sent" && !markedViewed.current) {
       markedViewed.current = true;
-      const { data: sess } = await supabase.auth.getSession();
-      if (sess.session) return;
+      if (hasOwnerSession()) return;
       try {
         await markPublicQuoteViewed(supabasePublic, id); // no-op if it already moved on
         const updated = await fetchPublicQuote(supabasePublic, id);
@@ -480,7 +480,7 @@ function Page({ children, sticky }) {
       <main className="max-w-2xl mx-auto px-4 pt-5">{children}</main>
       <footer className="max-w-2xl mx-auto px-4 mt-8 text-center text-[12px] text-ink-3 space-y-1">
         <div>{companyConfig.businessName}{companyConfig.contactEmail ? ` · ${companyConfig.contactEmail}` : ""}</div>
-        {companyConfig.showPoweredBy && <div className="text-ink-4">Powered by DropStack</div>}
+        {companyConfig.showPoweredBy && <div>Powered by DropStack</div>}
       </footer>
       {sticky}
     </div>

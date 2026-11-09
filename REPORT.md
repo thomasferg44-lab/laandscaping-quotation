@@ -1,10 +1,38 @@
 # REPORT: Quote & Invoice compete pass (reskin + functional upgrades)
 
-Branch `compete/quote-upgrades` (10 commits on `main` c7b3ff5), including Tom's two mid-build addenda (see the Addenda section). **Not pushed, not deployed, no SQL applied to any real database, no secrets touched.** The schema patch is a file for Ziggy's review.
+Branch `compete/quote-upgrades` (10 commits on `main` c7b3ff5), including Tom's two mid-build addenda (see the Addenda section). **Deployed 8–9 November 2026 on Tom's approval (DEPLOY_TASK.md)**; see the Deployment section right below. Before that approval, this pass ran with no push, no deploy and no live database writes. No SQL was applied by me at any point: the schema patch was already on dropstack-dev (Nov 6, per DEPLOY_TASK), and I only verified it with read-only probes.
 
 Format follows `dropstack-tools-DESIGN.md` §6: baseline → what changed → Gate 1 → Gate 2 → Gate 3 → review pack → Gate 5 → behaviour changes and what's left.
 
 ---
+
+## Deployment (8–9 November 2026)
+
+| Step | Result |
+|---|---|
+| Database state before deploy | Patch already applied Nov 6 (per DEPLOY_TASK, verify-compete 24/24 there). **Not re-applied.** Six read-only anon probes against dropstack-dev all **PASS**: `get_public_quote` returns the new columns; `accept_public_quote_v2` is exposed (malformed token returns `not_found`, no row touched); the old `accept_public_quote(token)` is still exposed; internal `accept_quote_as_customer` is denied to anon (42501); `quote_library_items` exists and is denied to anon (42501); `quotes` is still denied to anon (42501). |
+| Push | Branch `compete/quote-upgrades` pushed to `origin` at **38eba5e63d446a69b85a9a4ad937f09a2951755d** |
+| PR | https://github.com/thomasferg44-lab/laandscaping-quotation/pull/1, merged into `main` as **b27441c94341f146aacffc5ad26b957bd0105c58** (merge commit; no direct push to main) |
+| Deploy route | Same as previous deploys: Netlify site `quotetoolv2` builds `main` from GitHub (`npm run build` → `dist`). `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` were already set on Netlify for builds and functions; nothing in Netlify was changed. |
+| Deploy preview (checked before merging) | `6af1277a3b81b1d7be502c2a` at https://deploy-preview-1--quotetoolv2.netlify.app: live checks 9/9 PASS |
+| **Production deploy** | **`6af127e0bf13a479b58762dd`**, state `ready`, context `production`, branch `main`, commit b27441c, published 2026-11-09 01:54:56 UTC, function `health` deployed. Admin: https://app.netlify.com/projects/quotetoolv2/deploys/6af127e0bf13a479b58762dd |
+
+**Live verification on https://quote.dropstack.co** (read-only: no sign-in, no real quote links opened, since a first open marks a quote viewed; the only quote token used is the all-zero one, which matches nothing). 9/9 PASS:
+
+| Check | Result |
+|---|---|
+| `index.html` is the new build (brand title, Supabase preconnect, early quote fetch) | PASS |
+| Served JS contains the new features: options ("Choose an option"), add-ons, deposit, typed-name acceptance ("Your full name", `accept_public_quote_v2`), "Load demo data", library, Quick add suggestions, `/api/health` | PASS |
+| `GET /api/health`: `ok: true`, `healthy: true`, `database: true` (537 ms), `configComplete: true`, booleans only, `no-store`, no URL/key/number/email in the body | PASS |
+| Customer page (390px and desktop) renders the new designed "Quote not available" state | PASS |
+| Sign-in (390px and desktop) renders in the new design | PASS |
+| No JS errors and no database write requests during the checks, at both sizes | PASS |
+
+Health also reports `whatsappNumber: false` and `contactEmail: false`. That is correct for this deploy, which runs the deliberately fake placeholder business, so the dashboard status line will read "Connected · add WhatsApp number" until a real client config is used.
+
+What I did **not** verify live, because each needs either a login or opening a real quote (both are writes, or need credentials Tom holds): the signed-in dashboard (including the demo data button rendering), and building, accepting and invoicing a quote end to end. The steps are in the BLOCKED list below (now: run on live with a test login and test data).
+
+**Live issue found, not fixed (Tom's call): a "Powered by Netlify" badge is shown on quote.dropstack.co.** Netlify injects it at serve time (`/.netlify/scripts/hud?variant=public`); our built `index.html` contains no Netlify reference. The design spec bans it (§2A). Removing it is a Netlify site or plan setting, which was outside this deploy task, so I changed nothing in Netlify.
 
 ## How it was tested (read this first)
 
@@ -147,6 +175,8 @@ The brief's quote flow plus every new feature and the addenda: 55 steps, **PASS 
 - The library shows a designed "almost ready" state. Demo data refuses cleanly, with no partial seed.
 
 ### BLOCKED-BY-PATCH: steps that need the patch on a real database (not run)
+
+*Update 8 Nov: the patch is on dropstack-dev and the build is live. Steps 1–3 were done by Ziggy/Tom on Nov 6; 15–16 were covered read-only above. The rest still need a test login and test data on live.*
 
 Run these after the patch is applied (Gate 6), with test data only:
 
@@ -306,7 +336,7 @@ Everything is additive and runs in one transaction.
 
 ## Flagged / not done / for Tom or Ziggy
 
-- **Nothing was applied, pushed or deployed.** CLAUDE.md expects a PR for every change; the brief said no push, so there's a local branch and no PR yet.
+- **Deployed on Tom's approval** via PR #1 (see the Deployment section). This REPORT update itself is on the branch with PR #2 open and unmerged, since merging it triggers another production build (Netlify credits).
 - **Real Supabase isn't exercised.** PostgREST resolving the new function, Realtime and Storage are all in the BLOCKED-BY-PATCH list, as is `/api/health` on Netlify.
 - **Suggestions read every quote the login can see.** On the shared DB a staff login would get suggestions from other owners' quotes, which is the same allowlist caveat as below.
 - **The Fast-3G pass is emulated and marginal** (2.49 s worst case). Measure on the live URL.

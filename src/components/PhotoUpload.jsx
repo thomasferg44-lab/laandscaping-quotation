@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import Icon from "./ui/Icon.jsx";
 
 const BUCKET = "quote-photos";
 
@@ -17,16 +18,14 @@ export default function PhotoUpload({ value, onChange, quoteId }) {
     setError(null);
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
     const path = `${quoteId || "unsaved"}/${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
-      cacheControl: "3600",
-      upsert: false,
-      contentType: file.type || undefined,
-    });
-    if (upErr) {
-      setError(upErr.message);
-    } else {
-      const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-      onChange(data.publicUrl);
+    try {
+      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
+        cacheControl: "3600", upsert: false, contentType: file.type || undefined,
+      });
+      if (upErr) setError("The photo didn't upload. Check your connection and try again.");
+      else onChange(supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl);
+    } catch {
+      setError("The photo didn't upload. Check your connection and try again.");
     }
     setBusy(false);
     if (inputRef.current) inputRef.current.value = "";
@@ -37,20 +36,19 @@ export default function PhotoUpload({ value, onChange, quoteId }) {
       {value ? (
         <>
           <a href={value} target="_blank" rel="noreferrer">
-            <img src={value} alt="Line item photo" className="h-16 w-16 rounded-lg object-cover border border-gray-200" />
+            <img src={value} alt="Line item photo" className="h-14 w-14 rounded-[12px] object-cover bg-fill" />
           </a>
-          <button type="button" onClick={() => onChange(null)} className="text-sm text-red-600 underline">
-            Remove photo
-          </button>
+          <button type="button" onClick={() => onChange(null)} className="btn bg-transparent text-bad px-2 hover:bg-bad-soft">Remove photo</button>
         </>
       ) : (
-        <label className="text-sm text-gray-700 cursor-pointer inline-flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 hover:bg-gray-50">
-          <span>{busy ? "Uploading…" : "📷 Add photo"}</span>
+        <label className={`btn-secondary cursor-pointer ${busy ? "opacity-60" : ""}`}>
+          <Icon name="camera" size={18} />
+          <span>{busy ? "Uploading…" : "Add photo"}</span>
           {/* capture="environment" opens the rear camera on phones */}
-          <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onFile} disabled={busy} />
+          <input ref={inputRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={onFile} disabled={busy} />
         </label>
       )}
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-[13px] text-error">{error}</span>}
     </div>
   );
 }

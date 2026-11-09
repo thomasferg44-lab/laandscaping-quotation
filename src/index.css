@@ -2,8 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
-/* iOS Safari zooms the page when a focused field is under 16px. Fields
-   inherit font-size from their <label className="text-sm">, so pin them. */
+/* Console design system (dropstack-tools-DESIGN.md §1): system grey canvas,
+   white cards, one dark glass chrome; the aura (violet/pink lean for Quote &
+   Invoice) only in header bands, hero stats and empty states. */
 @layer base {
+  html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: #f5f5f7;
+    color: #1d1d1f;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+  /* iOS Safari zooms the page when a focused field is under 16px. */
   input, select, textarea { font-size: 1rem; }
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
+  :focus-visible { outline: 2px solid #0071e3; outline-offset: 2px; border-radius: 8px; }
+  .grid > * { min-width: 0; }
+  /* fieldsets default to min-width: min-content, which lets a scrolling
+     segmented control widen the whole page on phones */
+  fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+  ::selection { background: rgb(0 113 227 / 0.18); }
+}
+
+@layer components {
+  .aura-fill { background-image: linear-gradient(120deg, #2457e6 0%, #7438e6 38%, #d42a7c 72%, #c2410c 100%); }
+  /* Quote & Invoice lean: violet into pink. */
+  .aura-wash {
+    background-image:
+      radial-gradient(120% 90% at 100% 0%, rgb(124 58 237 / 0.10), transparent 55%),
+      radial-gradient(90% 80% at 0% 100%, rgb(255 79 163 / 0.08), transparent 60%),
+      radial-gradient(70% 60% at 85% 100%, rgb(10 132 255 / 0.05), transparent 60%);
+  }
+  .aura-pill { background-image: linear-gradient(120deg, rgb(142 92 255 / 0.32), rgb(255 79 163 / 0.24)); }
+  .aura-ring { background-image: conic-gradient(from 210deg, #8e5cff, #ff4fa3, #ff9f0a, #0a84ff, #8e5cff); }
+  .glass-chrome {
+    background: rgb(28 28 30 / 0.94);
+    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+  }
+  .glass-light {
+    background: rgb(245 245 247 / 0.9);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .glass-white {
+    background: rgb(255 255 255 / 0.92);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .skeleton {
+    background: linear-gradient(90deg, #ececf0 0px, #f6f6f8 120px, #ececf0 240px);
+    background-size: 800px 100%;
+    animation: shimmer 1.4s linear infinite;
+    border-radius: 10px;
+  }
+  .tabular { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* Forms §2 */
+  .field-label { @apply block text-[13px] font-semibold text-ink mb-1.5; }
+  .field-help { @apply mt-1.5 text-[13px] text-ink-3; }
+  .field-error { @apply mt-1.5 text-[13px] text-error flex items-start gap-1.5; }
+  .input {
+    @apply block w-full rounded-input border border-field bg-white px-3.5 py-3 text-base text-ink placeholder:text-ink-4
+           transition-[border-color,box-shadow] duration-200 ease-out-soft min-h-[48px];
+  }
+  .input:focus { @apply outline-none border-action-fill shadow-ring; }
+  .input[aria-invalid="true"] { @apply border-error; }
+  .input-money { @apply text-right tabular; }
+  .card { @apply bg-white rounded-card shadow-card; }
+
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-input font-semibold min-h-[44px] px-4 text-[15px]
+                transition-[transform,opacity,background-color] duration-200 ease-out-soft active:scale-[0.98]
+                disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100; }
+  .btn-primary { @apply btn bg-brand text-brand-ink py-3.5; }
+  .btn-secondary { @apply btn bg-fill text-ink hover:bg-fill-2; }
+  .btn-plain { @apply btn bg-transparent text-action hover:bg-fill px-3; }
+  .btn-danger { @apply btn bg-bad-soft text-bad; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -5,3 +5,8 @@ dist
 !.env.example
 .DS_Store
 .netlify
+# local review pack (screenshots), see REPORT.md
+review-pack/
+
+# Supabase CLI local state
+supabase/.temp/

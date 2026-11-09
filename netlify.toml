@@ -3,6 +3,13 @@
   publish = "dist"
   functions = "netlify/functions"
 
+# Health check (netlify/functions/health.mjs). Must come before the SPA fallback.
+[[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+  force = true
+
 # SPA fallback so /quote/:id and /builder/:id resolve client-side.
 [[redirects]]
   from = "/*"

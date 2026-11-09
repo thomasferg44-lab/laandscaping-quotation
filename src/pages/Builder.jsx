@@ -1,287 +1,430 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { companyConfig } from "../../companyConfig";
-import {
-  MODE_KEYS,
-  MODES,
-  makeMoneyFormatter,
-  newLineItem,
-  serialiseLineItem,
-  sumLineItems,
-} from "../lib/lineItems";
+import { MODE_KEYS, MODES, lineItemFromLibrary, makeMoneyFormatter, newLineItem } from "../lib/lineItems";
+import { addTier, buildQuotePayload, emptyForm, formFromRow, formOptionalCents, formTotalCents, removeTier } from "../lib/quotePayload";
+import { getQuote, listLibrary, needsPatch, saveLibraryItem, saveQuote } from "../lib/quotesApi";
+import { libraryEntryFromLineItem, toLibraryRow } from "../lib/libraryForm";
+import { buildSuggestions, lineItemFromSuggestion } from "../lib/suggestions";
+import { depositSplit, MAX_TIERS, isAcceptedStatus } from "../lib/quoteMath";
+import { docLabel, docRef, isInvoiceStatus } from "../lib/quoteDoc";
+import { makeCentsFormatter } from "../lib/money";
+import AppShell from "../components/AppShell.jsx";
 import LineItemEditor from "../components/LineItemEditor.jsx";
-import StatusBadge from "../components/StatusBadge.jsx";
 import ShareButtons from "../components/ShareButtons.jsx";
-import { advanceStatus } from "../lib/quoteStatus";
-import { exportQuotePdf } from "../lib/pdfExport";
-import { docLabel, isInvoiceStatus } from "../lib/quoteDoc";
+import StatusBadge from "../components/StatusBadge.jsx";
+import LibraryPicker from "../components/LibraryPicker.jsx";
+import LibraryEntrySheet from "../components/LibraryEntrySheet.jsx";
+import ConfirmSheet from "../components/ConfirmSheet.jsx";
+import Icon from "../components/ui/Icon.jsx";
+import Skeleton from "../components/ui/Skeleton.jsx";
+import { Field, NumberField, Segmented, Switch, TextField } from "../components/ui/Field.jsx";
+import { useToast } from "../components/ui/Toast.jsx";
+import { useQuotes } from "../state/QuotesStore.jsx";
+import useLocalDraft, { clearLocalDraft, readLocalDraft } from "../hooks/useLocalDraft";
 
-// Stage 1: build and save a quote (status 'draft'). Sharing, the public page,
-// invoice conversion, PDF and the dashboard are later build-order stages.
+// Build and edit a quote. One job per screen on phones: this screen builds
+// (step 1); sending happens from the share card once saved (step 2); the
+// customer accepts on their link (step 3). Drafts autosave to this device.
 export default function Builder() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
+  const store = useQuotes();
   const formatMoney = useMemo(() => makeMoneyFormatter(companyConfig.currency), []);
+  const formatCents = useMemo(() => makeCentsFormatter(companyConfig.currency), []);
 
-  const [quote, setQuote] = useState({
-    customer_name: "",
-    customer_phone: "",
-    customer_email: "",
-    line_items: [newLineItem("area")],
-    status: "draft",
-  });
+  const [form, setForm] = useState(() => emptyForm(companyConfig));
+  const [loaded, setLoaded] = useState(null);
   const [loading, setLoading] = useState(Boolean(id));
+  const [loadError, setLoadError] = useState(null);
+  const [dirty, setDirty] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [savedAt, setSavedAt] = useState(null);
-  const [error, setError] = useState(null);
-  const [dirty, setDirty] = useState(false); // unsaved edits since last save/load
-  const [converting, setConverting] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [activeTier, setActiveTier] = useState(0);
+  const [library, setLibrary] = useState(null);
+  const [libraryError, setLibraryError] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [libEntry, setLibEntry] = useState(null);
+  const [tierToRemove, setTierToRemove] = useState(null);
+  const restoredFor = useRef(undefined);
 
-  // Load an existing draft when /builder/:id
+  useLocalDraft(id, form, dirty);
+
+  const restoreDraft = useCallback((base, row) => {
+    if (restoredFor.current === (id ?? "new")) return;
+    restoredFor.current = id ?? "new";
+    const draft = readLocalDraft(id);
+    if (!draft?.form) return;
+    if (row?.updated_at && draft.savedAt < row.updated_at) { clearLocalDraft(id); return; }
+    setForm(draft.form);
+    setDirty(true);
+    toast("Restored your unsaved changes", {
+      duration: 6000,
+      action: { label: "Discard", onClick: () => { clearLocalDraft(id); setForm(base); setDirty(false); } },
+    });
+  }, [id, toast]);
+
   useEffect(() => {
-    if (!id) return;
     let cancelled = false;
-    supabase
-      .from("quotes")
-      .select("*")
-      .eq("id", id)
-      .single()
-      .then(({ data, error }) => {
+    setSubmitted(false);
+    setSaveError(null);
+    setActiveTier(0);
+    if (!id) {
+      const base = emptyForm(companyConfig);
+      setForm(base); setLoaded(null); setLoading(false);
+      restoreDraft(base, null);
+      return;
+    }
+    setLoading(true);
+    getQuote(supabase, id)
+      .then((row) => {
         if (cancelled) return;
-        if (error) setError(error.message);
-        else setQuote({ ...data, customer_phone: data.customer_phone ?? "", customer_email: data.customer_email ?? "" });
-        setLoading(false);
-      });
+        if (!row) { setLoadError("This quote doesn't exist, or you don't have access to it."); setLoading(false); return; }
+        const base = formFromRow(row, companyConfig);
+        setLoaded(row); setForm(base); setLoading(false);
+        restoreDraft(base, row);
+      })
+      .catch(() => { if (!cancelled) { setLoadError("Couldn't load this quote. Check your connection and try again."); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, restoreDraft]);
 
-  const subtotal = sumLineItems(quote.line_items);
-  const total = subtotal; // VAT/discount are not in the v1 spec; keep the column for later.
+  const ensureLibrary = useCallback(async () => {
+    if (library !== null) return;
+    try { setLibrary(await listLibrary(supabase)); setLibraryError(null); }
+    catch (e) {
+      setLibrary([]);
+      setLibraryError(needsPatch(e) ? "The item library needs the November database update before it can be used." : "Couldn't load your library. Check your connection.");
+    }
+  }, [library]);
 
-  function setField(k, v) {
-    setDirty(true);
-    setQuote((q) => ({ ...q, [k]: v }));
+  // Library is needed up front for suggestions (it is also the picker's data).
+  useEffect(() => { ensureLibrary(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- editing ------------------------------------------------------------
+  const change = (fn) => { setDirty(true); setSaveError(null); setForm(fn); };
+  const setField = (k, v) => change((f) => ({ ...f, [k]: v }));
+  const items = form.tiered ? form.tiers[activeTier]?.line_items ?? [] : form.line_items;
+  const setItems = (fn) => change((f) => {
+    if (!f.tiered) return { ...f, line_items: fn(f.line_items) };
+    return { ...f, tiers: f.tiers.map((t, i) => (i === activeTier ? { ...t, line_items: fn(t.line_items) } : t)) };
+  });
+  // A fresh form starts with one empty row: a quick-add fills that row
+  // instead of leaving a blank card above the new item.
+  const isBlankRow = (it) => !it.description?.trim() && !it.rate && !it.photo_url;
+  const addItem = (item) => setItems((list) => (list.length === 1 && isBlankRow(list[0]) ? [item] : [...list, item]));
+
+  // Deterministic suggestions: this business's library + past quotes.
+  const suggestionSources = { library: library ?? [], quotes: store?.quotes ?? [], excludeQuoteId: id ?? null };
+  const quickAdd = buildSuggestions({ ...suggestionSources, currentItems: items, limit: 8 });
+  const suggestFor = (itemId) => (query) =>
+    buildSuggestions({ ...suggestionSources, currentItems: items.filter((x) => x.id !== itemId), query, limit: 3 })
+      .filter((s) => s.key !== query.trim().toLowerCase());
+
+  function onAddTier() {
+    const next = addTier(form);
+    change(() => next);
+    setActiveTier(next.tiers.length - 1);
+    toast(form.tiered ? "Option added. Its items start as a copy" : "Options on. Adjust what each one includes");
   }
-  function updateItem(next) {
-    setDirty(true);
-    setQuote((q) => ({ ...q, line_items: q.line_items.map((it) => (it.id === next.id ? next : it)) }));
+  function confirmRemoveTier() {
+    change((f) => removeTier(f, tierToRemove));
+    setActiveTier(0);
+    setTierToRemove(null);
   }
-  function removeItem(itemId) {
-    setDirty(true);
-    setQuote((q) => ({ ...q, line_items: q.line_items.filter((it) => it.id !== itemId) }));
-  }
-  function addItem(mode) {
-    setDirty(true);
-    setQuote((q) => ({ ...q, line_items: [...q.line_items, newLineItem(mode)] }));
-  }
+
+  const known = useMemo(() => ({
+    tiers: loaded ? "tiers" in loaded : false,
+    deposit_type: loaded ? "deposit_type" in loaded : false,
+    deposit_value: loaded ? "deposit_value" in loaded : false,
+    valid_until: loaded ? "valid_until" in loaded : false,
+    valid_until_original: loaded?.valid_until ? String(loaded.valid_until).slice(0, 10) : null,
+  }), [loaded]);
+  const check = useMemo(() => buildQuotePayload(form, { known, timeZone: companyConfig.timeZone }), [form, known]);
+  const errors = submitted ? check.errors ?? {} : {};
 
   async function save(e) {
     e?.preventDefault();
-    setError(null);
-    if (!quote.customer_name.trim()) {
-      setError("Customer name is required.");
-      return;
-    }
-    const items = quote.line_items.map(serialiseLineItem).filter((it) => it.description || it.total);
-    if (items.length === 0) {
-      setError("Add at least one line item with a description.");
+    setSubmitted(true);
+    setSaveError(null);
+    if (check.errors) {
+      // first invalid tier with item errors, so the error is on screen
+      const bad = check.errors.itemErrors && form.tiered
+        ? form.tiers.findIndex((t) => t.line_items.some((it) => check.errors.itemErrors[it.id]))
+        : -1;
+      if (bad >= 0) setActiveTier(bad);
+      setTimeout(() => document.querySelector('[aria-invalid="true"], [data-error="true"]')?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
       return;
     }
     setSaving(true);
-    const payload = {
-      customer_name: quote.customer_name.trim(),
-      customer_phone: quote.customer_phone.trim() || null,
-      customer_email: quote.customer_email.trim() || null,
-      line_items: items,
-      subtotal: sumLineItems(items),
-      total: sumLineItems(items),
-    };
-    let res;
-    if (id) {
-      res = await supabase.from("quotes").update(payload).eq("id", id).select().single();
-    } else {
-      res = await supabase.from("quotes").insert({ ...payload, status: "draft" }).select().single();
+    try {
+      const row = await saveQuote(supabase, id, check.payload);
+      clearLocalDraft(id);
+      if (!id) clearLocalDraft(null);
+      setLoaded(row);
+      setForm(formFromRow(row, companyConfig));
+      setDirty(false);
+      setSubmitted(false);
+      setSavedAt(new Date());
+      store?.upsertLocal(row);
+      toast(id ? "Changes saved" : "Draft saved");
+      if (!id) navigate(`/builder/${row.id}`, { replace: true });
+    } catch (err) {
+      setSaveError(needsPatch(err)
+        ? "Options, deposits and valid-until dates need the November database update. Switch them off to save now; your work is kept on this device."
+        : "Couldn't save. Check your connection and try again. Your changes are kept on this device.");
     }
     setSaving(false);
-    if (res.error) {
-      setError(res.error.message);
-      return;
-    }
-    setSavedAt(new Date());
-    setDirty(false);
-    setQuote((q) => ({ ...q, ...res.data, customer_phone: res.data.customer_phone ?? "", customer_email: res.data.customer_email ?? "" }));
-    if (!id) navigate(`/builder/${res.data.id}`, { replace: true });
   }
 
-  // Convert to invoice: same record, same line items, only status changes.
-  // Goes through the shared guarded status path; invoiced_at is stamped by
-  // the DB trigger.
-  async function convertToInvoice() {
-    if (!window.confirm("Convert this accepted quote to an invoice? The customer's link will now show an invoice.")) return;
-    setConverting(true);
-    setError(null);
-    try {
-      const row = await advanceStatus(id, "accepted", "invoiced");
-      if (row) setQuote((q) => ({ ...q, ...row }));
-      else setError("Quote is no longer in 'accepted' state. Reload to see its current status.");
-    } catch (e) {
-      setError(e.message);
-    }
-    setConverting(false);
+  async function saveToLibrary(entry) {
+    const row = await saveLibraryItem(supabase, toLibraryRow(entry));
+    setLibrary((l) => [...(l ?? []), row].sort((a, b) => a.name.localeCompare(b.name)));
+    setLibEntry(null);
+    toast("Saved to your item library");
+  }
+  async function openSaveToLibrary(item) {
+    await ensureLibrary();
+    setLibEntry(libraryEntryFromLineItem(item));
   }
 
-  async function downloadPdf() {
-    setExporting(true);
-    setError(null);
-    try {
-      // Export what is saved, not the unsaved form state, so PDF == hosted page.
-      const items = quote.line_items.map(serialiseLineItem);
-      await exportQuotePdf({ ...quote, id, line_items: items, subtotal: sumLineItems(items), total: sumLineItems(items) });
-    } catch (e) {
-      setError(`PDF export failed: ${e.message}`);
-    }
-    setExporting(false);
+  // --- render -------------------------------------------------------------
+  const quote = loaded ? { ...loaded, ...form, id } : form;
+  const isDraft = (loaded?.status ?? "draft") === "draft";
+  const locked = Boolean(loaded?.accepted_selection) && isAcceptedStatus(loaded.status);
+  const title = id ? `Edit ${docLabel(loaded?.status ?? "draft").toLowerCase()}` : "New quote";
+  const totalCents = formTotalCents(form);
+  const optionalCents = formOptionalCents(form, activeTier);
+  const dep = form.depositOn ? depositSplit(totalCents, { type: form.deposit.type, value: form.deposit.value }) : null;
+  const step = !id || isDraft ? 1 : isAcceptedStatus(loaded.status) ? 3 : 2;
+
+  if (loading) {
+    return (
+      <AppShell title={title} back={{ to: "/", label: "Quotes" }} hideTabs>
+        <div className="space-y-4" aria-busy="true">
+          <Skeleton className="h-6 w-40" /><Skeleton className="h-48" /><Skeleton className="h-72" />
+        </div>
+      </AppShell>
+    );
   }
-
-  async function signOut() {
-    await supabase.auth.signOut();
+  if (loadError) {
+    return (
+      <AppShell title="Quote" back={{ to: "/", label: "Quotes" }}>
+        <div className="card p-6 text-center">
+          <p className="text-[15px] text-ink-2">{loadError}</p>
+          <Link to="/" className="btn-secondary mt-4">Back to quotes</Link>
+        </div>
+      </AppShell>
+    );
   }
-
-  if (loading) return <div className="p-6 text-sm text-gray-500">Loading quote…</div>;
-
-  const isDraft = quote.status === "draft";
 
   return (
-    <div className="min-h-screen pb-32">
-      <header className="sticky top-0 z-10 bg-white border-b border-gray-200">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <Link to="/" className="text-sm text-gray-500 whitespace-nowrap">← Quotes</Link>
-            {companyConfig.logoUrl && (
-              <img src={companyConfig.logoUrl} alt="" className="h-8 w-8 object-contain" onError={(e) => (e.currentTarget.style.display = "none")} />
-            )}
-            <div className="truncate font-semibold" style={{ color: companyConfig.primaryColor }}>
-              {companyConfig.businessName}
-            </div>
-          </div>
-          <button type="button" onClick={signOut} className="text-sm text-gray-500">Sign out</button>
-        </div>
-      </header>
+    <AppShell title={title} back={{ to: id ? `/quotes/${id}` : "/", label: id ? "Quote" : "Quotes" }} hideTabs
+      actions={loaded && <StatusBadge status={loaded.status} />}>
+      <form onSubmit={save} className="space-y-5" noValidate>
+        <StepDots step={step} />
 
-      <form onSubmit={save} className="max-w-2xl mx-auto px-4 py-4 space-y-6">
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold">{id ? `Edit ${docLabel(quote.status).toLowerCase()}` : "New quote"}</h1>
-            <div className="flex items-center gap-3">
-              {id && !isDraft && (
-                <a href={`/quote/${id}`} target="_blank" rel="noreferrer" className="text-sm underline text-gray-600">
-                  Preview customer page
-                </a>
-              )}
-              <StatusBadge status={quote.status} />
-            </div>
-          </div>
-          {!isDraft && (
-            <p className="text-sm rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-800">
-              {isInvoiceStatus(quote.status)
-                ? "This is now an invoice. Editing it will change what the customer sees on their link and PDF."
-                : "This quote has already been sent. Editing it will change what the customer sees."}
+        {locked ? (
+          <div className="card p-5 bg-good-soft/60 space-y-2">
+            <div className="flex items-center gap-2 text-good font-semibold"><Icon name="check" /> Accepted by the customer</div>
+            <p className="text-[15px] text-ink-2">
+              Accepted quotes are locked, so the {isInvoiceStatus(loaded.status) ? "invoice" : "quote"} always matches exactly what the customer agreed to.
             </p>
-          )}
-          <label className="block text-sm">
-            <span className="text-gray-700">Customer name *</span>
-            <input type="text" required value={quote.customer_name} onChange={(e) => setField("customer_name", e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block text-sm">
-              <span className="text-gray-700">WhatsApp / phone</span>
-              <input type="tel" inputMode="tel" placeholder="e.g. 082 123 4567" value={quote.customer_phone}
-                onChange={(e) => setField("customer_phone", e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
-            </label>
-            <label className="block text-sm">
-              <span className="text-gray-700">Email</span>
-              <input type="email" value={quote.customer_email} onChange={(e) => setField("customer_email", e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
-            </label>
+            <Link to={`/quotes/${id}`} className="btn-secondary">View quote details</Link>
           </div>
-        </section>
+        ) : !isDraft && loaded ? (
+          <p className="card px-4 py-3 text-[14px] bg-warn-soft text-warn">
+            {isInvoiceStatus(loaded.status)
+              ? "This is now an invoice. Editing it will change what the customer sees on their link and PDF."
+              : "This quote has already been sent. Editing it will change what the customer sees."}
+          </p>
+        ) : null}
 
-        <section className="space-y-3">
-          <h2 className="font-semibold">Line items</h2>
-          {quote.line_items.map((it) => (
-            <LineItemEditor key={it.id} item={it} quoteId={id} formatMoney={formatMoney}
-              primaryColor={companyConfig.primaryColor}
-              onChange={updateItem} onRemove={() => removeItem(it.id)} />
-          ))}
-          <div className="flex flex-wrap gap-2">
-            {MODE_KEYS.map((k) => (
-              <button key={k} type="button" onClick={() => addItem(k)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm hover:bg-gray-50">
-                + {MODES[k].label}
-              </button>
-            ))}
-          </div>
-        </section>
+        <fieldset disabled={locked} className="space-y-5 disabled:opacity-60">
+          {/* Customer */}
+          <section className="card p-5 space-y-4" aria-labelledby="cust-h">
+            <h2 id="cust-h" className="text-[17px] font-semibold">Customer</h2>
+            <TextField label="Customer name" value={form.customer_name} autoComplete="off"
+              onChange={(e) => setField("customer_name", e.target.value)} error={errors.customer_name} placeholder="e.g. Test Customer" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField label="WhatsApp number" optional type="tel" inputMode="tel" value={form.customer_phone}
+                onChange={(e) => setField("customer_phone", e.target.value)} placeholder="e.g. 082 000 0000"
+                help="Used for the WhatsApp send and follow-up" />
+              <TextField label="Email" optional type="email" inputMode="email" value={form.customer_email}
+                onChange={(e) => setField("customer_email", e.target.value)} error={errors.customer_email} placeholder="e.g. test@example.com" />
+            </div>
+          </section>
 
-        {id ? (
-          <ShareButtons
-            quote={{ ...quote, id }}
-            disabledReason={dirty ? "Save your changes before sending" : null}
-            onStatusChange={(row) => setQuote((q) => ({ ...q, status: row.status }))}
-          />
-        ) : (
-          <p className="text-sm text-gray-500">Save the draft to get a shareable link.</p>
-        )}
-
-        {id && (
-          <section className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
-            <h2 className="font-semibold">Actions</h2>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={downloadPdf} disabled={dirty || exporting}
-                title={dirty ? "Save your changes first so the PDF matches what's saved" : undefined}
-                className="flex-1 min-w-[7.5rem] rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
-                {exporting ? "Generating…" : `⬇️ Download ${docLabel(quote.status)} PDF`}
-              </button>
-              {quote.status === "accepted" && (
-                <button type="button" onClick={convertToInvoice} disabled={dirty || converting}
-                  title={dirty ? "Save your changes first" : undefined}
-                  className="flex-1 min-w-[7.5rem] rounded-lg px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: companyConfig.accentColor }}>
-                  {converting ? "Converting…" : "🧾 Convert to Invoice"}
+          {/* Options (tiers) */}
+          <section className="card p-5 space-y-4" aria-labelledby="opt-h">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="opt-h" className="text-[17px] font-semibold">{form.tiered ? "Options" : "Line items"}</h2>
+                <p className="text-[13px] text-ink-3">
+                  {form.tiered ? "The customer picks one option before accepting." : "Offer Good, Better and Best options to give the customer a choice."}
+                </p>
+              </div>
+              {(!form.tiered || form.tiers.length < MAX_TIERS) && (
+                <button type="button" onClick={onAddTier} className="btn-secondary flex-shrink-0">
+                  <Icon name="layers" size={18} /> {form.tiered ? "Add option" : "Offer options"}
                 </button>
               )}
             </div>
-            {quote.status === "accepted" && (
-              <p className="text-xs text-gray-500">Converting keeps every line item and the total. Only the status changes.</p>
-            )}
-            {isInvoiceStatus(quote.status) && quote.invoiced_at && (
-              <p className="text-xs text-gray-500">Invoiced on {new Date(quote.invoiced_at).toLocaleString("en-ZA")}.</p>
+            {form.tiered && (
+              <>
+                <Segmented label="Option to edit" value={String(activeTier)} onChange={(v) => setActiveTier(Number(v))}
+                  options={form.tiers.map((t, i) => ({ value: String(i), label: t.name?.trim() || `Option ${i + 1}` }))} />
+                <div className="flex items-end gap-3" data-error={errors.tierErrors?.[form.tiers[activeTier].id] ? "true" : undefined}>
+                  <TextField className="flex-1" label="Option name" value={form.tiers[activeTier].name}
+                    onChange={(e) => change((f) => ({ ...f, tiers: f.tiers.map((t, i) => (i === activeTier ? { ...t, name: e.target.value } : t)) }))}
+                    error={errors.tierErrors?.[form.tiers[activeTier].id]} />
+                  <button type="button" onClick={() => setTierToRemove(form.tiers[activeTier].id)}
+                    className="btn bg-transparent text-bad hover:bg-bad-soft mb-[2px]" aria-label="Remove this option">
+                    <Icon name="trash" size={18} />
+                  </button>
+                </div>
+                {Object.keys(errors.tierErrors ?? {}).length > 0 && (
+                  <p className="field-error"><Icon name="alert" size={15} className="mt-[1px]" />
+                    Fix the options marked: {form.tiers.filter((t) => errors.tierErrors[t.id]).map((t) => t.name || "unnamed").join(", ")}
+                  </p>
+                )}
+              </>
             )}
           </section>
-        )}
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+          {/* Items */}
+          <section className="space-y-3" aria-label="Items">
+            {items.map((it, i) => (
+              <LineItemEditor key={it.id} item={it} index={i} quoteId={id} formatMoney={formatMoney} submitted={submitted}
+                canRemove={items.length > 1 || Boolean(it.description)}
+                onChange={(next) => setItems((list) => list.map((x) => (x.id === next.id ? next : x)))}
+                onRemove={() => setItems((list) => {
+                  const rest = list.filter((x) => x.id !== it.id);
+                  return rest.length ? rest : [newLineItem("area")];
+                })}
+                onSaveToLibrary={openSaveToLibrary} suggest={suggestFor(it.id)} />
+            ))}
+            {errors.items && <p className="field-error" data-error="true"><Icon name="alert" size={15} className="mt-[1px]" />{errors.items}</p>}
+
+            <div className="card p-4 space-y-3">
+              {quickAdd.length > 0 && (
+                <div>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <span className="text-[13px] font-semibold">Quick add</span>
+                    <span className="text-[12px] text-ink-3">Your most-used items</span>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1" aria-label="Suggested items">
+                    {quickAdd.map((s) => (
+                      <button key={s.key} type="button" data-testid="quick-add"
+                        onClick={() => { addItem(lineItemFromSuggestion(s)); toast(`Added ${s.name}`); }}
+                        className="flex-shrink-0 max-w-[15rem] text-left rounded-[14px] bg-fill hover:bg-fill-2 active:scale-[0.98] transition-transform px-3.5 py-2 min-h-[56px]">
+                        <span className="flex items-center gap-1.5 text-[14px] font-medium"><Icon name="plus" size={15} className="flex-shrink-0" /><span className="truncate">{s.name}</span></span>
+                        <span className="block text-[12px] text-ink-3 tabular truncate pl-[21px]">{formatMoney(s.rate)}{MODES[s.mode].unit ? ` per ${MODES[s.mode].unit.replace(/s$/, "")}` : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button type="button" onClick={() => { ensureLibrary(); setPickerOpen(true); }} className="btn-secondary w-full py-3">
+                <Icon name="book" size={18} /> Add from library
+              </button>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {MODE_KEYS.map((k) => (
+                  <button key={k} type="button" onClick={() => addItem(newLineItem(k))} className="btn bg-white border border-hairline text-ink hover:bg-fill text-[14px] px-2">
+                    <Icon name="plus" size={16} /> {MODES[k].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* Terms */}
+          <section className="card p-5 space-y-4" aria-labelledby="terms-h">
+            <h2 id="terms-h" className="text-[17px] font-semibold">Terms</h2>
+            <Field label="Valid until" optional error={errors.valid_until}
+              help={form.valid_until ? "The customer can't accept after this date." : "No expiry date: the quote stays open."}>
+              {(a) => (
+                <div className="flex gap-2">
+                  <input {...a} type="date" value={form.valid_until} onChange={(e) => setField("valid_until", e.target.value)} className="input flex-1" />
+                  {form.valid_until && <button type="button" onClick={() => setField("valid_until", "")} className="btn-secondary">Clear</button>}
+                </div>
+              )}
+            </Field>
+            <div className="border-t border-hairline pt-2">
+              <Switch id="deposit-on" checked={form.depositOn} onChange={(v) => setField("depositOn", v)}
+                label="Ask for a deposit" description="Shown on the quote as due on acceptance, with the balance on completion." />
+            </div>
+            {form.depositOn && (
+              <div className="space-y-3 animate-rise" data-error={errors.deposit ? "true" : undefined}>
+                <Segmented label="Deposit type" value={form.deposit.type} onChange={(type) => setField("deposit", { ...form.deposit, type })}
+                  options={[{ value: "percent", label: "Percentage" }, { value: "fixed", label: "Fixed amount" }]} />
+                <NumberField label={form.deposit.type === "percent" ? "Deposit percentage" : "Deposit amount"}
+                  prefix={form.deposit.type === "fixed" ? "R" : undefined} suffix={form.deposit.type === "percent" ? "%" : undefined}
+                  value={form.deposit.value} onChange={(e) => setField("deposit", { ...form.deposit, value: e.target.value })}
+                  error={errors.deposit}
+                  help={dep && totalCents > 0 ? `${formatCents(dep.depositCents)} now, ${formatCents(dep.balanceCents)} on completion${form.tiered ? " (cheapest option)" : ""}` : undefined} />
+              </div>
+            )}
+          </section>
+        </fieldset>
+
+        {id && !locked && (
+          <ShareButtons quote={{ ...quote, status: loaded.status }} disabledReason={dirty ? "Save your changes before sending" : null}
+            onStatusChange={(row) => { setLoaded((l) => ({ ...l, ...row })); store?.upsertLocal(row); }} />
+        )}
+        {id && (
+          <Link to={`/quotes/${id}`} className="btn-plain w-full">View quote details and history <Icon name="chevronRight" size={18} /></Link>
+        )}
+        {!id && <p className="text-[13px] text-ink-3 text-center">Save the draft to get a link you can send.</p>}
       </form>
 
-      {/* Sticky footer: total + save. Thumb-reachable on phones. */}
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div>
-            <div className="text-xs text-gray-500">Total</div>
-            <div className="text-xl font-semibold">{formatMoney(total)}</div>
-            {savedAt && <div className="text-xs text-gray-400">Saved {savedAt.toLocaleTimeString()}</div>}
+      {/* Sticky frosted total bar: thumb zone, total updates live */}
+      {!locked && (
+        <div className="fixed bottom-0 inset-x-0 lg:left-[248px] z-30 glass-white border-t border-hairline pb-[env(safe-area-inset-bottom)]">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] text-ink-3">{form.tiered ? "From" : "Total"}{loaded ? ` · ${docRef({ ...loaded })}` : ""}</div>
+              <div className="text-[26px] leading-tight font-semibold tabular" data-testid="sticky-total">{formatCents(totalCents)}</div>
+              <div className="text-[12px] text-ink-3 truncate" aria-live="polite">
+                {saveError ? <span className="text-error">Not saved</span>
+                  : dirty ? "Unsaved changes, kept on this device"
+                  : savedAt ? `Saved ${savedAt.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })}`
+                  : optionalCents > 0 ? `+ ${formatCents(optionalCents)} in optional add-ons` : id ? "All changes saved" : "Not saved yet"}
+              </div>
+            </div>
+            <button type="button" onClick={save} disabled={saving} className="btn-primary flex-1 sm:flex-none sm:min-w-[180px] text-[17px]">
+              {saving ? "Saving…" : id ? "Save changes" : "Save draft"}
+            </button>
           </div>
-          <button type="button" onClick={save} disabled={saving}
-            className="rounded-lg px-5 py-2.5 text-white font-medium disabled:opacity-60"
-            style={{ backgroundColor: companyConfig.primaryColor }}>
-            {saving ? "Saving…" : id ? "Save changes" : "Save draft"}
-          </button>
+          {saveError && <p className="max-w-3xl mx-auto px-4 sm:px-6 pb-3 -mt-1 field-error" role="alert"><Icon name="alert" size={15} className="mt-[1px]" />{saveError}</p>}
         </div>
-      </div>
+      )}
+
+      <LibraryPicker open={pickerOpen} onClose={() => setPickerOpen(false)} items={library} error={libraryError} formatMoney={formatMoney}
+        onPick={(entry) => { addItem(lineItemFromLibrary(entry)); setPickerOpen(false); toast(`Added ${entry.name}`); }} />
+      <LibraryEntrySheet open={Boolean(libEntry)} initial={libEntry} title="Save to library" onClose={() => setLibEntry(null)}
+        onSave={(e) => {
+          if (libraryError) throw new Error(libraryError);
+          return saveToLibrary(e);
+        }} />
+      <ConfirmSheet open={Boolean(tierToRemove)} onClose={() => setTierToRemove(null)} title="Remove this option?" danger
+        confirmLabel="Remove option" onConfirm={confirmRemoveTier}
+        body={<p>Its items are removed from the quote. {form.tiers.length <= 2 ? "With one option left, this becomes a normal single-price quote." : ""}</p>} />
+    </AppShell>
+  );
+}
+
+function StepDots({ step }) {
+  const steps = ["Build", "Send", "Accept"];
+  return (
+    <div className="flex items-center gap-2 text-[13px] text-ink-3" aria-label={`Step ${step} of 3: ${steps[step - 1]}`}>
+      <span className="flex gap-1.5" aria-hidden>
+        {steps.map((s, i) => <span key={s} className={`h-1.5 rounded-full transition-all duration-200 ${i + 1 === step ? "w-5 bg-brand" : i + 1 < step ? "w-1.5 bg-brand/50" : "w-1.5 bg-fill-2"}`} />)}
+      </span>
+      Step {step} of 3 · {steps[step - 1]}
     </div>
   );
 }

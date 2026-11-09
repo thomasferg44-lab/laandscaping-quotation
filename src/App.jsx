@@ -1,56 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import { supabase } from "./lib/supabaseClient";
-import { checkBusinessAccess } from "./lib/auth";
-import Login from "./pages/Login.jsx";
-import Builder from "./pages/Builder.jsx";
+import { lazy, Suspense } from "react";
+import { Route, Routes } from "react-router-dom";
+import Skeleton from "./components/ui/Skeleton.jsx";
+
+// Route-level code splitting. The customer's /quote/:id page is what opens
+// on a cheap phone over mobile data (design spec §2A performance): it ships
+// in the entry chunk (no extra round trip to discover a lazy chunk) and
+// never downloads supabase-js or the builder, dashboard and library code;
+// those all live behind the lazy OwnerApp chunk.
 import PublicQuote from "./pages/PublicQuote.jsx";
-import Dashboard from "./pages/Dashboard.jsx";
-import NoAccess from "./components/NoAccess.jsx";
+const OwnerApp = lazy(() => import("./OwnerApp.jsx"));
+
+export function Loading() {
+  return (
+    <div className="max-w-2xl mx-auto px-4 pt-20 space-y-4" aria-busy="true" aria-label="Loading">
+      <Skeleton className="h-8 w-1/2" /><Skeleton className="h-40 rounded-card" /><Skeleton className="h-24 rounded-card" />
+    </div>
+  );
+}
 
 export default function App() {
-  const [session, setSession] = useState(undefined); // undefined = loading
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  // Signed in is not enough: the login must be on the business_users
-  // allowlist. Re-checked when the user changes, not on token refreshes.
-  const userId = session?.user?.id;
-  const [access, setAccess] = useState(null); // null = checking
-  const [attempt, setAttempt] = useState(0);
-  const recheck = useCallback(() => setAttempt((n) => n + 1), []);
-  useEffect(() => {
-    setAccess(null);
-    if (!userId) return;
-    let cancelled = false;
-    checkBusinessAccess(supabase).then((a) => { if (!cancelled) setAccess(a); });
-    return () => { cancelled = true; };
-  }, [userId, attempt]);
-
-  if (session === undefined) {
-    return <div className="p-6 text-sm text-gray-500">Loading…</div>;
-  }
-
-  const requireAuth = (el) => {
-    if (!session) return <Navigate to="/login" replace />;
-    if (access === null) return <div className="p-6 text-sm text-gray-500">Loading…</div>;
-    if (access !== "granted") return <NoAccess state={access} email={session.user?.email} onRetry={recheck} />;
-    return el;
-  };
-
   return (
-    <Routes>
-      <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/" element={requireAuth(<Dashboard />)} />
-      <Route path="/builder" element={requireAuth(<Builder />)} />
-      <Route path="/builder/:id" element={requireAuth(<Builder />)} />
-      {/* Public, no-login page the customer opens from WhatsApp/email */}
-      <Route path="/quote/:id" element={<PublicQuote />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<Loading />}>
+      <Routes>
+        {/* Public, no-login page the customer opens from WhatsApp/email */}
+        <Route path="/quote/:id" element={<PublicQuote />} />
+        <Route path="*" element={<OwnerApp />} />
+      </Routes>
+    </Suspense>
   );
 }

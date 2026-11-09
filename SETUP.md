@@ -40,13 +40,21 @@ This is the **only** file with client details. Change every value:
 |---|---|---|
 | `businessName` | `"Client Garden Co"` | Every page header, the PDF, the WhatsApp/email message |
 | `logoUrl` | `"/client-logo.svg"` (see below) | Page headers, PDF |
-| `primaryColor` | `"#RRGGBB"` | Buttons, headings, PDF table header |
+| `primaryColor` | `"#RRGGBB"` | Primary buttons, quote page accents, the monogram, PDF title. Text on it switches to dark automatically if white would be unreadable |
 | `accentColor` | `"#RRGGBB"` | PDF divider line |
 | `currency` | `"ZAR"` | All amounts. Leave as ZAR for SA clients |
-| `whatsappNumber` | Digits only, `27` instead of the leading `0`, no `+`. `082 123 4567` → `"27821234567"`. Use `""` to leave it off | Printed on the PDF as "WhatsApp +27…" |
+| `whatsappNumber` | Digits only, `27` instead of the leading `0`, no `+`. `082 123 4567` → `"27821234567"`. Use `""` to leave it off | PDF, and the "WhatsApp us / Call" fallback on the quote page when it can't load or has expired. The placeholder value shows nothing |
 | `contactEmail` | `"quotes@theirdomain.co.za"`. Use `""` to leave it off | Quote page footer, PDF |
 | `paymentMethods` | Leave as `[]` | Not used yet |
+| `timeZone` | `"Africa/Johannesburg"` | Which calendar day a quote expires on. The database uses the same zone in `public.quote_business_today()` (schema.sql): change both together |
+| `quoteValidityDays` | e.g. `30`, or `0` for no default expiry | Default "Valid until" on new quotes (editable per quote) |
+| `depositDefault` | `{ type: "percent", value: 50 }`, `{ type: "fixed", value: 1500 }` or `null` | Default deposit on new quotes (editable per quote) |
+| `paymentInstructions` | The client's real bank/EFT details as one sentence | Accepted quote, invoice and PDF ("How to pay"). Plain text, no payment processing |
+| `paymentLink` | `"https://…"` (the client's own PayFast/Yoco/SnapScan page), or `""` | A Pay online button next to the bank details on the quote page and invoice, printed on the PDF. https only. No payment sync |
+| `quoteTerms` | One short sentence, or `""` | Quiet line under the totals on the quote page and PDF |
+| `showPoweredBy` | `true` / `false` | The small "Powered by DropStack" line on the customer's page |
 
+- [ ] No logo? Set `logoUrl` to `""`: the app and PDF use an initials monogram in the brand colour.
 - [ ] Colours are exactly 6 hex digits with `#`. A 3-digit code like `#2F5`
       makes the PDF fall back to the default green.
 
@@ -58,7 +66,7 @@ Logo:
 
 Optional:
 
-- [ ] Change the browser tab title in `index.html` (`<title>Quotes</title>`)
+- The browser tab title now comes from `businessName` automatically.
 
 ## 3. Supabase project (1 min hands-on)
 
@@ -80,8 +88,18 @@ Optional:
       "No access yet" after logging in.**
 - [ ] Paste all of `supabase/verify-rls.sql` into the SQL editor → Run.
       Every row must say **PASS**. It changes nothing and works on an empty project.
+- [ ] Same for `supabase/verify-compete-upgrades.sql` (options, typed-name
+      acceptance, deposit, expiry, item library, demo data). Every row **PASS**.
 - [ ] Project Settings → API: keep this tab open for the next step
       (Project URL and the `anon` `public` key)
+
+### Existing projects (already live before November 2026)
+
+Apply `supabase/patches/2026-11-05-compete-upgrades.sql` in the SQL editor
+**before** deploying this version of the app, then run both verify scripts.
+The patch is additive and keeps old quote links and the old app working.
+If the app ships first: plain quotes still work, but options, deposits,
+valid-until dates, the item library and demo data say they need the update.
 
 ## 4. Local check (1 min)
 
@@ -117,6 +135,11 @@ Optional:
 - [ ] On your phone, open `https://<live address>/login`, log in, and check
       the logo and name. Open one quote link from WhatsApp and check it
       shows without a login.
+
+Health check (after deploy):
+
+- [ ] Open `https://<site>/api/health`. It should show `"ok": true`, `"database": true` and `"configComplete": true`. It only ever shows true/false, never keys or contact details.
+- [ ] The dashboard's status line (bottom of the sidebar, or under the content on a phone) agrees.
 
 ## 6. Send the client
 

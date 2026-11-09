@@ -61,3 +61,29 @@ export function buildShareLinks(quote) {
     }),
   };
 }
+
+// One-tap WhatsApp follow-up for a sent/viewed quote the customer hasn't
+// accepted. Manual only: this builds a wa.me link, the owner taps send.
+export function buildFollowUpMessage({ customerName, ref, totalText, quoteUrl }) {
+  const name = customerName?.trim();
+  return [
+    `Hi${name ? ` ${name}` : ""},`,
+    "",
+    `Just following up on quote ${ref} from ${companyConfig.businessName} for ${totalText}.`,
+    "You can view it and accept it here:",
+    quoteUrl,
+    "",
+    "Let me know if you have any questions.",
+    "",
+    "Thanks,",
+    companyConfig.businessName,
+  ].join("\n");
+}
+
+export function buildFollowUpUrl({ quote, ref, totalText, origin }) {
+  const quoteUrl = buildQuoteUrl(quote.id, origin);
+  return buildWhatsAppUrl({
+    phone: quote.customer_phone,
+    message: buildFollowUpMessage({ customerName: quote.customer_name, ref, totalText, quoteUrl }),
+  });
+}

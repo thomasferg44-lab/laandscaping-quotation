@@ -2,6 +2,9 @@ import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { friendlyAuthError } from "../lib/auth";
 import { companyConfig } from "../../companyConfig";
+import BrandMark from "../components/ui/BrandMark.jsx";
+import { TextField } from "../components/ui/Field.jsx";
+import Icon from "../components/ui/Icon.jsx";
 
 // Minimal login. No signup UI: logins are created in the Supabase dashboard
 // (Authentication → Users) and given access with
@@ -26,33 +29,19 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-white rounded-xl shadow p-6 space-y-4">
-        <div className="text-center">
-          {companyConfig.logoUrl && (
-            <img src={companyConfig.logoUrl} alt="" className="h-12 mx-auto mb-2 object-contain" onError={(e) => (e.currentTarget.style.display = "none")} />
-          )}
-          <h1 className="text-lg font-semibold" style={{ color: companyConfig.primaryColor }}>
-            {companyConfig.businessName}
-          </h1>
-          <p className="text-sm text-gray-500">Sign in to build quotes</p>
+    <div className="min-h-screen aura-wash flex items-center justify-center p-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm card p-6 sm:p-8 space-y-5 animate-rise">
+        <div className="text-center space-y-3">
+          <BrandMark size={56} className="mx-auto rounded-[16px]" />
+          <div>
+            <h1 className="text-[22px] font-semibold">{companyConfig.businessName}</h1>
+            <p className="text-[15px] text-ink-3">Sign in to build and send quotes</p>
+          </div>
         </div>
-        <label className="block text-sm">
-          <span className="text-gray-700">Email</span>
-          <input type="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
-        </label>
-        <label className="block text-sm">
-          <span className="text-gray-700">Password</span>
-          <input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
-        </label>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button type="submit" disabled={busy}
-          className="w-full rounded-lg py-2 text-white font-medium disabled:opacity-60"
-          style={{ backgroundColor: companyConfig.primaryColor }}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
+        <TextField label="Email" type="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <TextField label="Password" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        {error && <p className="field-error" role="alert"><Icon name="alert" size={15} className="mt-[1px]" />{error}</p>}
+        <button type="submit" disabled={busy} className="btn-primary w-full text-[17px]">{busy ? "Signing in…" : "Sign in"}</button>
       </form>
     </div>
   );
